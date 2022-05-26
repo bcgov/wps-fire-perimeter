@@ -14,13 +14,22 @@ sudo port selfupdate
 sudo port upgrade outdated
 sudo port install python38
 sudo port install gdal
+sudo port install proj9
 ```
 
-this installs python 3.8 to: /opt/local/Library/Frameworks/Python.framework/Versions/3.8
+Python 3.8 is installed to: /opt/local/Library/Frameworks/Python.framework/Versions/3.8
+
+Find out where proj is installed, and set PROJ_DIR for your environment
+```bash
+port contents proj9
+```
 
 ```bash
 poetry env use /opt/local/Library/Frameworks/Python.framework/Versions/3.8/bin/python3
 poetry run python -m pip install --upgrade pip
 poetry install
-poetry run python -m pip install gdal==$(gdal-config --version)
+poetry run python -m pip install gdal==$(gdal-config --version) --no-cache-dir
 ```
+
+NOTE: --no-cache-dir is very important to make sure that gdal install doesn't skip numpy bindings.
+NOTE: order is very important here, you need to have installed numpy before gdal.

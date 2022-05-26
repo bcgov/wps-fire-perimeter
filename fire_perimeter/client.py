@@ -1,49 +1,17 @@
-import json
+import numpy
 import requests
-import jwt
-from datetime import datetime, timedelta
+from typing import Tuple
+from datetime import date, timedelta
+import struct
+import json
 from google.oauth2.credentials import Credentials
 import ee
-from osgeo import gdal, ogr
-
-
-def maskS2clouds(image):
-    """ function from online example """
-    qa = image.select('QA60') # Bits 10, 11: clouds, cirrus, resp.
-    cloudBitMask = 1 << 10 # set both 0 == clear conditions
-    cirrusBitMask = 1 << 11
-    mask = qa.bitwiseAnd(cloudBitMask).eq(0).And(qa.bitwiseAnd(cirrusBitMask).eq(0))
-    return image.updateMask(mask).divide(10000)
-
-def apply_cloud_cover_threshold(start_date, n_days, cloud_threshold):
-    data = ee.ImageCollection('COPERNICUS/S2_SR').filterDate(
-        start_date,
-        start_date.advance(n_days, 'day'))
-
-    # apply cloud threshold and mask
-    data = data.filter(ee.Filter.lt(
-        'CLOUDY_PIXEL_PERCENTAGE',
-        cloud_threshold)).map(maskS2clouds).mean()
-
-    return data
-
-
-def apply_classification_rule(data):
-    # get DEM, LandCover, Sentinel-2 "L2A" (level two atmospherically-
-    # corrected "bottom of atmosphere (BOA) reflectance) data """
-    nasa_dem = ee.Image('NASA/NASADEM_HGT/001').select('elevation') 
-    land_cover = ee.ImageCollection("ESA/WorldCover/v100").first()
-    
-
-    # apply classification rule
-    rule = 'R > G && R > B && (LC != 80) && (LC != 50) && (LC != 70) && (DEM < 1500)'
-    r = data.expression(rule, {'R': data.select('B12'),
-                            'G': data.select('B11'),
-                            'B': data.select('B9'),
-                            'LC': land_cover.select('Map'),
-                            'DEM': nasa_dem})
-    
-    return r
+from numpy import ndarray
+from osgeo import gdal, ogr, osr
+from pyproj import Geod
+from shapely.geometry import shape
+from fire_perimeter.active_fire import apply_classification_rule, apply_cloud_cover_threshold
+from fire_perimeter.auth import jwt_token
 
 
 def write_geotiff(data, bbox, filename, params={}):
@@ -59,12 +27,56 @@ def write_geotiff(data, bbox, filename, params={}):
             f.write(response.content)
         print(f'{filename} written')
 
-    
+
+def create_in_memory_band(data: ndarray, cols, rows, projection, geotransform):
+    """ Create an in memory data band to represent a single raster layer.
+    See https://gdal.org/user/raster_data_model.html#raster-band for a complete
+    description of what a raster band is.
+    """
+    mem_driver = gdal.GetDriverByName('MEM')
+
+    dataset = mem_driver.Create('memory', cols, rows, 1, gdal.GDT_Byte)
+    dataset.SetProjection(projection)
+    dataset.SetGeoTransform(geotransform)
+    band = dataset.GetRasterBand(1)
+    band.WriteArray(data)
+
+    return dataset, band
+
+
+def read_scanline(band, yoff):
+    """ Read a band scanline (up to the y-offset), returning an array of values.
+
+    A raster (image) may consist of multiple bands (e.g. for a colour image, one may have a band for
+    red, green, blue, and alpha).
+    A scanline, is a single row of a band.
+
+    band, definition: https://gdal.org/user/raster_data_model.html#raster-band
+    fetching a raster band: https://gdal.org/tutorials/raster_api_tut.html#fetching-a-raster-band
+    """
+    scanline = band.ReadRaster(xoff=0, yoff=yoff,
+                               xsize=band.XSize, ysize=1,
+                               buf_xsize=band.XSize, buf_ysize=1,
+                               buf_type=gdal.GDT_Float32)
+    return struct.unpack('f' * band.XSize, scanline)
+
 
 def polygonize(geotiff_filename, geojson_filename):
-    # TODO: we only need polygons for 1, not for 0!
     classification = gdal.Open(geotiff_filename, gdal.GA_ReadOnly)
     band = classification.GetRasterBand(1)
+
+    projection = classification.GetProjection()
+    geotransform = classification.GetGeoTransform()
+    rows = band.YSize
+    cols = band.XSize
+
+    # generate mask data
+    mask_data = numpy.empty([rows, cols], bool)
+    for y_row_index in range(rows):
+        row = read_scanline(band, y_row_index)
+        for index, cell in enumerate(row):
+            mask_data[y_row_index, index] = cell ==1
+    mask_ds, mask_band = create_in_memory_band(mask_data, cols, rows, projection, geotransform)
 
     # Create a GeoJSON layer.
     geojson_driver = ogr.GetDriverByName('GeoJSON')
@@ -75,15 +87,20 @@ def polygonize(geotiff_filename, geojson_filename):
     dst_layer.CreateField(field_name)
 
     # Turn the rasters into polygons.
-    gdal.Polygonize(band, None, dst_layer, 0, [], callback=None)
+    gdal.Polygonize(band, mask_band, dst_layer, 0, [], callback=None)
 
     # Ensure that all data in the target dataset is written to disk.
     dst_ds.FlushCache()
     # Explicitly clean up (is this needed?)
-    del dst_ds, classification
+
+    del dst_ds, classification, mask_ds
+    print(f'{geojson_filename} written')
 
 
-def main():
+def generate_raster(date_of_interest: date, point_of_interest: Tuple, classification_geotiff_filename: str, rgb_geotiff_filename: str):
+    """
+    Step back 14 days from the the of interest, and classify an area around the point of interest.
+    """
     # construct jwt token
     token = jwt_token()
 
@@ -93,62 +110,98 @@ def main():
 
     # https://developers.google.com/earth-engine/guides/python_install#syntax
 
+    # very unlikely to have a good image for any given date, so we'll go back 14 days...
+    date_range = 14
+    start_date = date_of_interest - timedelta(days=date_range)
+
+    print(f'start date: {start_date}')
+
     data = apply_cloud_cover_threshold(
-        ee.Date('2021-08-02T00:00', 'Etc/GMT-8'),
-        14, # date range: [t1, t1 + N_DAYS]
+        ee.Date(f'{start_date.isoformat()}T00:00', 'Etc/GMT-8'),
+        date_range, # date range: [t1, t1 + N_DAYS]
         22.2 # cloud cover max %
         )
 
-    fires =  apply_classification_rule(data)
+    fires = apply_classification_rule(data)
 
     # ee.Geometry.BBox(west, south, east, north)
-    bbox = ee.Geometry.BBox(-122, 51.3, -121.2, 51.7)
+    lat = point_of_interest[0]
+    lon = point_of_interest[1]
+    west = lon-0.3
+    south = lat-0.2
+    east = lon+0.3
+    north = lat+0.2
+    
+    bbox = ee.Geometry.BBox(west, south, east, north)
+    # print(bbox)
 
-    write_geotiff(fires, bbox, 'binary_classification.tif')
-    write_geotiff(data, bbox, 'rgb.tif', {'bands': ['B12', 'B11', 'B9']})
-    polygonize('binary_classification.tif', 'binary_classification.json')
-
-
+    write_geotiff(fires, bbox, classification_geotiff_filename)
+    write_geotiff(data, bbox, rgb_geotiff_filename, {'bands': ['B12', 'B11', 'B9']})
     
 
-def jwt_token():
+def calculate_area(filename):
+    # TODO: you have to do some magic here, to re-project to something that uses meters
+    print(filename)
+    driver = ogr.GetDriverByName('GeoJSON')
+    ds = driver.Open(filename, gdal.GA_ReadOnly)
+    layer = ds.GetLayer()
+    source_projection = layer.GetSpatialRef()
+    target_projection = osr.SpatialReference()
+    # target_projection.SetWellKnownGeogCS('NAD83')
+    # TODO: use a better target projection!! I just thumb sucked this one!
+    target_projection.ImportFromEPSG(3857)
+    transform = osr.CoordinateTransformation(source_projection, target_projection)
+    area_total = 0
+    for feature in layer:
+        transformed = feature.GetGeometryRef()
+        transformed.Transform(transform)
+        area_total += transformed.GetArea()
+    print(f'Total area: {area_total} m^2, {area_total/10000} hectares')
+
+    del ds
+
+
+def calculate_area_fail(filename):
+    print(filename)
+    with open(filename) as f:
+        js = json.load(f)
+    total_area = 0
+    for feature in js['features']:
+        polygon = shape(feature['geometry'])
+        geod = Geod(ellps="WGS84")
+        area, perim = geod.geometry_area_perimeter(polygon)
+        total_area += area
+        # print(f'area: {area}')
+        # print(f'perim: {perim}')
+    print(f'total_area {total_area}')
+
+
+def generate_data(date_of_interest: date, point_of_interest: Tuple):
     """
-    https://developers.google.com/identity/protocols/oauth2#serviceaccount
+    Generate a geojson file for the fire classification, and a geotiff file for the RGB image.
     """
+    classification_geotiff_filename = f'output/binary_classification_{date_of_interest.isoformat()}.tif'
+    geojson_filename=f'output/binary_classification_{date_of_interest.isoformat()}.json'
 
-    # https://developers.google.com/identity/protocols/oauth2/service-account
-    # https://developers.google.com/earth-engine/reference/rest?hl=en_GB
-    # https://developers.google.com/identity/protocols/oauth2/service-account#python_2
+    generate_raster(
+        date_of_interest=date_of_interest,
+        point_of_interest=point_of_interest,
+        classification_geotiff_filename=classification_geotiff_filename,
+        rgb_geotiff_filename=f'output/rgb_{date_of_interest.isoformat()}.tif')
 
-    # we take our service account details as provided by the google console:
-    with open('/Users/sybrand/Workspace/fire-350717-ca75193a59cc.json') as f:
-        service_account = json.load(f)
+    polygonize(classification_geotiff_filename, geojson_filename)
 
-    iat = datetime.now()
-    exp = iat + timedelta(seconds=3600)
-
-    payload = {
-        'iss': service_account['client_email'],
-        'sub': service_account['client_email'],
-        'aud': 'https://earthengine.googleapis.com/',
-        'iat': int(iat.timestamp()),
-        'exp': int(exp.timestamp())
-    }
-
-    additional_headers = {
-        'kid': service_account['private_key_id']
-    }
-
-    # sign the payload using the private key
-    token = jwt.encode(
-        payload,
-        service_account['private_key'],
-        headers=additional_headers,
-        algorithm='RS256')
-
-    return token
+    calculate_area(geojson_filename)
+    
 
 
 if __name__ == '__main__':
-    main()
+    # date_of_interest = date(2021, 8, 23)
+    date_of_interest = date(2021, 8, 9)
+    point_of_interest = (51.5, -121.6) # lat, lon
+
+    for _ in range(1):
+        generate_data(date_of_interest, point_of_interest)
+        date_of_interest += timedelta(days=1)
+
     # once you have a polygon, you can calculate the area: https://pyproj4.github.io/pyproj/stable/examples.html#geodesic-area

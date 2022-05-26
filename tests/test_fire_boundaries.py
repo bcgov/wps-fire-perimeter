@@ -1,4 +1,4 @@
-from fire_boundaries import __version__
+from fire_perimeter import __version__
 
 
 def test_version():
