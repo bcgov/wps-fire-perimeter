@@ -21,11 +21,13 @@ def write_geotiff(data, bbox, filename, params={}):
     url = data.getDownloadUrl(dict(base_params, **params))
     response = requests.get(url, timeout=60)
 
-    print(response.status_code)
+    # print(response.status_code)
     if response.status_code == 200:
         with open(filename, 'wb') as f:
             f.write(response.content)
-        print(f'{filename} written')
+    else:
+        print(f'failed to write {filename}')
+        # print(f'{filename} written')
 
 
 def create_in_memory_band(data: ndarray, cols, rows, projection, geotransform):
@@ -127,10 +129,11 @@ def generate_raster(date_of_interest: date, point_of_interest: Tuple, classifica
     # ee.Geometry.BBox(west, south, east, north)
     lat = point_of_interest[0]
     lon = point_of_interest[1]
-    west = lon-0.3
-    south = lat-0.2
-    east = lon+0.3
-    north = lat+0.2
+    # for a super big fire - longitude +/- 0.3, latitude +/- 0.2
+    west = lon-0.1
+    south = lat-0.1
+    east = lon+0.1
+    north = lat+0.1
     
     bbox = ee.Geometry.BBox(west, south, east, north)
     # print(bbox)
@@ -149,7 +152,8 @@ def calculate_area(filename):
     target_projection = osr.SpatialReference()
     # target_projection.SetWellKnownGeogCS('NAD83')
     # TODO: use a better target projection!! I just thumb sucked this one!
-    target_projection.ImportFromEPSG(3857)
+    # https://spatialreference.org/ref/epsg/nad83-utm-zone-10n/
+    target_projection.ImportFromEPSG(26910)
     transform = osr.CoordinateTransformation(source_projection, target_projection)
     area_total = 0
     for feature in layer:
@@ -176,32 +180,81 @@ def calculate_area_fail(filename):
     print(f'total_area {total_area}')
 
 
-def generate_data(date_of_interest: date, point_of_interest: Tuple):
+def generate_data(date_of_interest: date, point_of_interest: Tuple, identifier: str):
     """
     Generate a geojson file for the fire classification, and a geotiff file for the RGB image.
     """
-    classification_geotiff_filename = f'output/binary_classification_{date_of_interest.isoformat()}.tif'
-    geojson_filename=f'output/binary_classification_{date_of_interest.isoformat()}.json'
+    classification_geotiff_filename = f'output/{identifier}_{date_of_interest.isoformat()}_binary_classification.tif'
+    geojson_filename=f'output/{identifier}_{date_of_interest.isoformat()}_binary_classification.json'
 
     generate_raster(
         date_of_interest=date_of_interest,
         point_of_interest=point_of_interest,
         classification_geotiff_filename=classification_geotiff_filename,
-        rgb_geotiff_filename=f'output/rgb_{date_of_interest.isoformat()}.tif')
+        rgb_geotiff_filename=f'output/{identifier}_{date_of_interest.isoformat()}_rgb.tif')
 
     polygonize(classification_geotiff_filename, geojson_filename)
 
     calculate_area(geojson_filename)
     
 
+def get_active_fires():
+    url = 'https://openmaps.gov.bc.ca/geo/pub/ows'
+    params = {
+        'service': 'WFS',
+        'version': '2.0.0',
+        'request': 'GetFeature',
+        'typeName': 'pub:WHSE_LAND_AND_NATURAL_RESOURCE.PROT_CURRENT_FIRE_PNTS_SP',
+        'outputFormat': 'json',
+        'srsName': 'EPSG:4326'
+    }
+
+    response = requests.get(url, params=params, timeout=60)
+
+    if response.status_code == 200:
+        js = response.json()
+
+        for feature in js['features']:
+            try:
+                properties = feature.get('properties', {})
+                fire_status = properties.get('FIRE_STATUS')
+                if fire_status != 'Out':
+                    current_size = int(properties.get('CURRENT_SIZE'))
+                    if current_size > 90:
+                        yield feature
+            except:
+                print('trouble with feature')
+    else:
+        print(response.status_code)
+        print(response.text)
+
 
 if __name__ == '__main__':
-    # date_of_interest = date(2021, 8, 23)
-    date_of_interest = date(2021, 8, 9)
-    point_of_interest = (51.5, -121.6) # lat, lon
+    
+    for feature in get_active_fires():
+        properties = feature.get('properties', {})
+        fire_status = properties.get('FIRE_STATUS')
+        current_size = int(properties.get('CURRENT_SIZE'))
+        ignition_date = properties.get('IGNITION_DATE')
+        fire_number = properties.get('FIRE_NUMBER')
 
-    for _ in range(1):
-        generate_data(date_of_interest, point_of_interest)
-        date_of_interest += timedelta(days=1)
+        print(f'{fire_number} {fire_status} current size: {current_size}, ignition date: {ignition_date}')
+        
+        point = shape(feature['geometry'])
+        lon = point.coords[0][0]
+        lat = point.coords[0][1]
+
+        yesterday = date.today() - timedelta(days=1)
+    
+        generate_data(yesterday, (lat, lon), fire_number)
+
+    # date_of_interest = date(2021, 8, 23)
+    # date_of_interest = date(2021, 8, 9)
+    # point_of_interest = (51.5, -121.6) # lat, lon
+    # for _ in range(1):
+    #     generate_data(date_of_interest, point_of_interest)
+    #     date_of_interest += timedelta(days=1)
 
     # once you have a polygon, you can calculate the area: https://pyproj4.github.io/pyproj/stable/examples.html#geodesic-area
+
+    # https://openmaps.gov.bc.ca/geo/pub/WHSE_LAND_AND_NATURAL_RESOURCE.PROT_CURRENT_FIRE_PNTS_SP/ows?service=WMS&request=GetCapabilities
