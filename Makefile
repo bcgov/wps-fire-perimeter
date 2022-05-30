@@ -3,3 +3,9 @@ notebook:
 
 run:
 	poetry run python fire_perimeter/client.py
+
+build:
+	docker build --tag=wps-fire-perimeter:latest .
+
+run-docker:
+	docker run --network="host" -t --env-file=".env" wps-fire-perimeter:latest
