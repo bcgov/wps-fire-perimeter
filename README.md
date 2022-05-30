@@ -6,7 +6,6 @@ Google Earth Engine does not work on versions newer than 3.8.*
 
 ## Ubuntu
 
-
 ```bash
 pip install pygdal==3.0.4.10
 ```
