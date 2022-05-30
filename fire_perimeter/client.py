@@ -132,6 +132,7 @@ def generate_raster(date_of_interest: date, point_of_interest: Tuple, classifica
     lat = point_of_interest[0]
     lon = point_of_interest[1]
     # for a super big fire - longitude +/- 0.3, latitude +/- 0.2
+    # TODO: figure this out using hectare estimate.
     west = lon-0.3
     south = lat-0.2
     east = lon+0.3
