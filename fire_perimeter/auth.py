@@ -1,6 +1,7 @@
 """
 """
 import json
+import os
 from datetime import datetime, timedelta
 import jwt
 from decouple import config
@@ -17,8 +18,15 @@ def jwt_token():
 
     # we take our service account details as provided by the google console:
     service_account_config = config('service_account_config')
-    with open(service_account_config) as f:
-        service_account = json.load(f)
+    if os.path.exists(service_account_config):
+        with open(service_account_config) as f:
+            service_account = json.load(f)
+    else:
+        service_account = {
+            'client_email': config('client_email'),
+            'private_key': config('private_key').replace('\\n', '\n'),
+            'private_key_id': config('private_key_id')
+        }
 
     iat = datetime.now()
     exp = iat + timedelta(seconds=3600)

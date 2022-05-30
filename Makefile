@@ -9,3 +9,5 @@ build:
 
 run-docker:
 	docker run --network="host" -t --env-file=".env" wps-fire-perimeter:latest
+
+build-run: build run-docker

@@ -23,6 +23,6 @@ RUN cd /usr/local/src && /opt/poetry/bin/poetry env use /root/.pyenv/versions/3.
 RUN cd /usr/local/src && /opt/poetry/bin/poetry run python -m pip install gdal==$(gdal-config --version)
 
 # Copy source files
-COPY ./fire_perimeter /usr/local/src
+COPY ./fire_perimeter/*.py /usr/local/src/fire_perimeter/
 WORKDIR /usr/local/src
-CMD ["/opt/poetry/bin/poetry", "run", "python", "fire_perimeter/client.py"]
+CMD ["/opt/poetry/bin/poetry", "run", "python", "-m", "fire_perimeter.client"]
