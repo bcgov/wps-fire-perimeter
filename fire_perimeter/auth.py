@@ -3,6 +3,7 @@
 import json
 from datetime import datetime, timedelta
 import jwt
+from decouple import config
 
 def jwt_token():
     """
@@ -15,7 +16,8 @@ def jwt_token():
     # https://developers.google.com/identity/protocols/oauth2/service-account#python_2
 
     # we take our service account details as provided by the google console:
-    with open('/Users/sybrand/Workspace/fire-350717-ca75193a59cc.json') as f:
+    service_account_config = config('service_account_config')
+    with open(service_account_config) as f:
         service_account = json.load(f)
 
     iat = datetime.now()

@@ -1,9 +1,10 @@
-import numpy
-import requests
+import os
 from typing import Tuple
 from datetime import date, timedelta
 import struct
 import json
+import numpy
+import requests
 from google.oauth2.credentials import Credentials
 import ee
 from numpy import ndarray
@@ -185,6 +186,9 @@ def generate_data(date_of_interest: date, point_of_interest: Tuple, identifier: 
     """
     Generate a geojson file for the fire classification, and a geotiff file for the RGB image.
     """
+    if not os.path.exists('output'):
+        os.mkdir('output')
+
     classification_geotiff_filename = f'output/{identifier}_{date_of_interest.isoformat()}_binary_classification.tif'
     geojson_filename=f'output/{identifier}_{date_of_interest.isoformat()}_binary_classification.json'
 
@@ -198,7 +202,10 @@ def generate_data(date_of_interest: date, point_of_interest: Tuple, identifier: 
 
     calculate_area(geojson_filename)
 
-    persist_polygon(geojson_filename, identifier)
+    try:
+        persist_polygon(geojson_filename, identifier, date_of_interest)
+    except Exception as e:
+        print(f'Could not persist polygon: {e}')
     
 
 def get_active_fires():
@@ -233,26 +240,31 @@ def get_active_fires():
 
 
 if __name__ == '__main__':
-    persist_polygon('output/binary_classification_2021-08-20.json', 'test')
+    # persist_polygon('output/test_2021-08-23_binary_classification.json', 'test', date(year=2021, month=8, day=23))
     
-    # for feature in get_active_fires():
-    #     properties = feature.get('properties', {})
-    #     fire_status = properties.get('FIRE_STATUS')
-    #     current_size = int(properties.get('CURRENT_SIZE'))
-    #     ignition_date = properties.get('IGNITION_DATE')
-    #     fire_number = properties.get('FIRE_NUMBER')
+    for feature in get_active_fires():
+        properties = feature.get('properties', {})
+        fire_status = properties.get('FIRE_STATUS')
+        current_size = int(properties.get('CURRENT_SIZE'))
+        ignition_date = properties.get('IGNITION_DATE')
+        fire_number = properties.get('FIRE_NUMBER')
 
-    #     print(f'{fire_number} {fire_status} current size: {current_size}, ignition date: {ignition_date}')
+        print(f'{fire_number} {fire_status} current size: {current_size}, ignition date: {ignition_date}')
         
-    #     point = shape(feature['geometry'])
-    #     lon = point.coords[0][0]
-    #     lat = point.coords[0][1]
+        point = shape(feature['geometry'])
+        lon = point.coords[0][0]
+        lat = point.coords[0][1]
 
-    #     yesterday = date.today() - timedelta(days=1)
+        yesterday = date.today() - timedelta(days=1)
     
-    #     generate_data(yesterday, (lat, lon), fire_number)
+        generate_data(yesterday, (lat, lon), fire_number)        
 
+    # for a particular date:
     # date_of_interest = date(2021, 8, 23)
+    # point_of_interest = (51.5, -121.6) # lat, lon
+    # generate_data(date_of_interest, point_of_interest, 'test')
+
+    # for a bunch of dates:
     # date_of_interest = date(2021, 8, 9)
     # point_of_interest = (51.5, -121.6) # lat, lon
     # for _ in range(1):

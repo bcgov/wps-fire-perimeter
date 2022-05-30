@@ -4,6 +4,13 @@
 
 Google Earth Engine does not work on versions newer than 3.8.*
 
+## Ubuntu
+
+
+```bash
+pip install pygdal==3.0.4.10
+```
+
 ## Using macports on m1
 
 I had trouble using pyenv to install the version I need. So installing python with macports, and telling poetry to use the version I want.
