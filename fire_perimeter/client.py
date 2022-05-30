@@ -132,10 +132,10 @@ def generate_raster(date_of_interest: date, point_of_interest: Tuple, classifica
     lat = point_of_interest[0]
     lon = point_of_interest[1]
     # for a super big fire - longitude +/- 0.3, latitude +/- 0.2
-    west = lon-0.1
-    south = lat-0.1
-    east = lon+0.1
-    north = lat+0.1
+    west = lon-0.3
+    south = lat-0.2
+    east = lon+0.3
+    north = lat+0.2
     
     bbox = ee.Geometry.BBox(west, south, east, north)
     # print(bbox)

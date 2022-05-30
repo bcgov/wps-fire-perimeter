@@ -1,0 +1,118 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: featureserv
+parameters:
+  - name: PG_FEATURESERV_IMAGE_TAG
+    value: "latest"
+  - name: IMAGE_REGISTRY
+    value: image-registry.apps.silver.devops.gov.bc.ca
+  - name: IMAGE_NAMESPACE
+    value: e1e498-tools
+  - name: PASSWORD_KEY_NAME
+    required: true
+    value: wps-global
+  - name: PASSWORD_KEY
+    required: true
+    value: featureserv-db-password
+  - name: POSTGRES_USER
+    required: true
+    value: featureserv
+  - name: POSTGRES_WRITE_HOST
+    required: true
+    value: patroni-wps-tileserv-replica
+  - name: POSTGRES_DATABASE
+    required: true
+    value: featureserv
+  - name: HOST
+    value: wps-dev-featureserv.apps.silver.devops.gov.bc.ca
+
+objects:
+  - apiVersion: v1
+    kind: DeploymentConfig
+    metadata:
+      labels:
+        app: featureserv
+      name: featureserv
+    spec:
+      replicas: 2
+      selector:
+        app: featureserv
+      strategy:
+        type: Rolling
+      template:
+        metadata:
+          labels:
+            app: featureserv
+            name: featureserv
+        spec:
+          containers:            
+            - name: pgfeatureserv
+              image: ${IMAGE_REGISTRY}/${IMAGE_NAMESPACE}/pg_featureserv:${PG_FEATURESERV_IMAGE_TAG}
+              ports:
+                - containerPort: 9000
+                  protocol: TCP
+              env:
+                - name: POSTGRES_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${PASSWORD_KEY_NAME}
+                      key: ${PASSWORD_KEY}
+                - name: DATABASE_URL
+                  value: postgresql://${POSTGRES_USER}:$(POSTGRES_PASSWORD)@${POSTGRES_WRITE_HOST}/${POSTGRES_DATABASE}
+              livenessProbe:
+                failureThreshold: 3
+                initialDelaySeconds: 5
+                periodSeconds: 30
+                successThreshold: 1
+                tcpSocket:
+                  port: 9000
+                timeoutSeconds: 5
+              readinessProbe:
+                httpGet:
+                  path: /
+                  port: 9000
+                failureThreshold: 3
+                initialDelaySeconds: 10
+                periodSeconds: 30
+                successThreshold: 1
+                timeoutSeconds: 5
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: 200m
+                  memory: 512Mi
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: featureserv
+      labels:
+        app: featureserv
+        name: featureserv
+    spec:
+      ports:
+        - name: 9000-tcp
+          protocol: TCP
+          port: 80
+          targetPort: 9000
+      selector:
+        name: featureserv
+  - apiVersion: route.openshift.io/v1
+    kind: Route
+    metadata:
+      name: featureserv
+      labels:
+        app: featureserv
+        name: featureserv
+    spec:
+      host: ${HOST}
+      port:
+        targetPort: 9000-tcp
+      to:
+        kind: Service
+        name: featureserv
+      tls:
+        termination: edge
+        insecureEdgeTerminationPolicy: Redirect

@@ -4,6 +4,11 @@
 
 Google Earth Engine does not work on versions newer than 3.8.*
 
+## General
+
+- Create `.env` file (you can copy `.env.example` and set appropriate values)
+- Assumes use of python poetry
+
 ## Ubuntu
 
 ```bash
