@@ -12,6 +12,7 @@ from pyproj import Geod
 from shapely.geometry import shape
 from fire_perimeter.active_fire import apply_classification_rule, apply_cloud_cover_threshold
 from fire_perimeter.auth import jwt_token
+from fire_perimeter.persistence import persist_polygon
 
 
 def write_geotiff(data, bbox, filename, params={}):
@@ -196,6 +197,8 @@ def generate_data(date_of_interest: date, point_of_interest: Tuple, identifier: 
     polygonize(classification_geotiff_filename, geojson_filename)
 
     calculate_area(geojson_filename)
+
+    persist_polygon(geojson_filename, identifier)
     
 
 def get_active_fires():
@@ -230,23 +233,24 @@ def get_active_fires():
 
 
 if __name__ == '__main__':
+    persist_polygon('output/binary_classification_2021-08-20.json', 'test')
     
-    for feature in get_active_fires():
-        properties = feature.get('properties', {})
-        fire_status = properties.get('FIRE_STATUS')
-        current_size = int(properties.get('CURRENT_SIZE'))
-        ignition_date = properties.get('IGNITION_DATE')
-        fire_number = properties.get('FIRE_NUMBER')
+    # for feature in get_active_fires():
+    #     properties = feature.get('properties', {})
+    #     fire_status = properties.get('FIRE_STATUS')
+    #     current_size = int(properties.get('CURRENT_SIZE'))
+    #     ignition_date = properties.get('IGNITION_DATE')
+    #     fire_number = properties.get('FIRE_NUMBER')
 
-        print(f'{fire_number} {fire_status} current size: {current_size}, ignition date: {ignition_date}')
+    #     print(f'{fire_number} {fire_status} current size: {current_size}, ignition date: {ignition_date}')
         
-        point = shape(feature['geometry'])
-        lon = point.coords[0][0]
-        lat = point.coords[0][1]
+    #     point = shape(feature['geometry'])
+    #     lon = point.coords[0][0]
+    #     lat = point.coords[0][1]
 
-        yesterday = date.today() - timedelta(days=1)
+    #     yesterday = date.today() - timedelta(days=1)
     
-        generate_data(yesterday, (lat, lon), fire_number)
+    #     generate_data(yesterday, (lat, lon), fire_number)
 
     # date_of_interest = date(2021, 8, 23)
     # date_of_interest = date(2021, 8, 9)
