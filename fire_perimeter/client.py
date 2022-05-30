@@ -1,4 +1,5 @@
 import os
+import tempfile
 from typing import Tuple
 from datetime import date, timedelta
 import struct
@@ -18,7 +19,8 @@ from fire_perimeter.persistence import persist_polygon
 
 def write_geotiff(data, bbox, filename, params={}):
     # https://developers.google.com/earth-engine/apidocs/ee-image-getthumburl
-    base_params = {'min': 0, 'max': 1, 'dimensions': 1024, 'region': bbox, 'format': 'GEO_TIFF'}
+    base_params = {'min': 0, 'max': 1, 'dimensions': 1024,
+                   'region': bbox, 'format': 'GEO_TIFF'}
 
     url = data.getDownloadUrl(dict(base_params, **params))
     response = requests.get(url, timeout=60)
@@ -79,8 +81,9 @@ def polygonize(geotiff_filename, geojson_filename):
     for y_row_index in range(rows):
         row = read_scanline(band, y_row_index)
         for index, cell in enumerate(row):
-            mask_data[y_row_index, index] = cell ==1
-    mask_ds, mask_band = create_in_memory_band(mask_data, cols, rows, projection, geotransform)
+            mask_data[y_row_index, index] = cell == 1
+    mask_ds, mask_band = create_in_memory_band(
+        mask_data, cols, rows, projection, geotransform)
 
     # Create a GeoJSON layer.
     geojson_driver = ogr.GetDriverByName('GeoJSON')
@@ -101,7 +104,11 @@ def polygonize(geotiff_filename, geojson_filename):
     print(f'{geojson_filename} written')
 
 
-def generate_raster(date_of_interest: date, point_of_interest: Tuple, classification_geotiff_filename: str, rgb_geotiff_filename: str):
+def generate_raster(date_of_interest: date,
+                    point_of_interest: Tuple,
+                    classification_geotiff_filename: str,
+                    rgb_geotiff_filename: str,
+                    current_size: int):
     """
     Step back 14 days from the the of interest, and classify an area around the point of interest.
     """
@@ -122,9 +129,9 @@ def generate_raster(date_of_interest: date, point_of_interest: Tuple, classifica
 
     data = apply_cloud_cover_threshold(
         ee.Date(f'{start_date.isoformat()}T00:00', 'Etc/GMT-8'),
-        date_range, # date range: [t1, t1 + N_DAYS]
-        22.2 # cloud cover max %
-        )
+        date_range,  # date range: [t1, t1 + N_DAYS]
+        22.2  # cloud cover max %
+    )
 
     fires = apply_classification_rule(data)
 
@@ -132,18 +139,20 @@ def generate_raster(date_of_interest: date, point_of_interest: Tuple, classifica
     lat = point_of_interest[0]
     lon = point_of_interest[1]
     # for a super big fire - longitude +/- 0.3, latitude +/- 0.2
-    # TODO: figure this out using hectare estimate.
+    # TODO: figure this out using hectare estimate. (current_size)
     west = lon-0.3
     south = lat-0.2
     east = lon+0.3
     north = lat+0.2
-    
+
     bbox = ee.Geometry.BBox(west, south, east, north)
     # print(bbox)
 
     write_geotiff(fires, bbox, classification_geotiff_filename)
-    write_geotiff(data, bbox, rgb_geotiff_filename, {'bands': ['B12', 'B11', 'B9']})
-    
+    # skipping geotiff, since we're just throwing it away in the end!
+    # write_geotiff(data, bbox, rgb_geotiff_filename,
+    #               {'bands': ['B12', 'B11', 'B9']})
+
 
 def calculate_area(filename):
     # TODO: you have to do some magic here, to re-project to something that uses meters
@@ -157,7 +166,8 @@ def calculate_area(filename):
     # TODO: use a better target projection!! I just thumb sucked this one!
     # https://spatialreference.org/ref/epsg/nad83-utm-zone-10n/
     target_projection.ImportFromEPSG(26910)
-    transform = osr.CoordinateTransformation(source_projection, target_projection)
+    transform = osr.CoordinateTransformation(
+        source_projection, target_projection)
     area_total = 0
     for feature in layer:
         transformed = feature.GetGeometryRef()
@@ -183,31 +193,40 @@ def calculate_area_fail(filename):
     print(f'total_area {total_area}')
 
 
-def generate_data(date_of_interest: date, point_of_interest: Tuple, identifier: str):
+def generate_data(date_of_interest: date, point_of_interest: Tuple, identifier: str, current_size: int):
     """
     Generate a geojson file for the fire classification, and a geotiff file for the RGB image.
     """
-    if not os.path.exists('output'):
-        os.mkdir('output')
 
-    classification_geotiff_filename = f'output/{identifier}_{date_of_interest.isoformat()}_binary_classification.tif'
-    geojson_filename=f'output/{identifier}_{date_of_interest.isoformat()}_binary_classification.json'
+    with tempfile.TemporaryDirectory() as temporary_path:
+        # We use a temporary file to generate raster files and polygons. When we're done, we're throwing away
+        # all the files, since we're only persisting the resultant polygons.
+        
+        classification_geotiff_filename = os.path.join(os.getcwd(), temporary_path, f'{identifier}_{date_of_interest.isoformat()}_binary_classification.tif')
+        geojson_filename = os.path.join(os.getcwd(), temporary_path, f'{identifier}_{date_of_interest.isoformat()}_binary_classification.json')
+        rgb_geotiff_filename = os.path.join(os.getcwd(), temporary_path,f'output/{identifier}_{date_of_interest.isoformat()}_rgb.tif')
 
-    generate_raster(
-        date_of_interest=date_of_interest,
-        point_of_interest=point_of_interest,
-        classification_geotiff_filename=classification_geotiff_filename,
-        rgb_geotiff_filename=f'output/{identifier}_{date_of_interest.isoformat()}_rgb.tif')
+        generate_raster(
+            date_of_interest=date_of_interest,
+            point_of_interest=point_of_interest,
+            classification_geotiff_filename=classification_geotiff_filename,
+            rgb_geotiff_filename=rgb_geotiff_filename,
+            current_size=current_size)
 
-    polygonize(classification_geotiff_filename, geojson_filename)
+        polygonize(classification_geotiff_filename, geojson_filename)
 
-    calculate_area(geojson_filename)
+        calculate_area(geojson_filename)
 
-    try:
-        persist_polygon(geojson_filename, identifier, date_of_interest)
-    except Exception as e:
-        print(f'Could not persist polygon: {e}')
-    
+        try:
+            persist_polygon(geojson_filename, identifier, date_of_interest)
+        except Exception as e:
+            print(f'Could not persist polygon: {e}')
+
+        # cleanup (do I need this? or will using temp directory be enough?)
+        for filename in [classification_geotiff_filename, geojson_filename, rgb_geotiff_filename]:
+            if os.path.exists(filename):
+                os.remove(filename)
+
 
 def get_active_fires():
     url = 'https://openmaps.gov.bc.ca/geo/pub/ows'
@@ -242,7 +261,7 @@ def get_active_fires():
 
 if __name__ == '__main__':
     # persist_polygon('output/test_2021-08-23_binary_classification.json', 'test', date(year=2021, month=8, day=23))
-    
+
     for feature in get_active_fires():
         properties = feature.get('properties', {})
         fire_status = properties.get('FIRE_STATUS')
@@ -250,15 +269,16 @@ if __name__ == '__main__':
         ignition_date = properties.get('IGNITION_DATE')
         fire_number = properties.get('FIRE_NUMBER')
 
-        print(f'{fire_number} {fire_status} current size: {current_size}, ignition date: {ignition_date}')
-        
+        print(
+            f'{fire_number} {fire_status} current size: {current_size}, ignition date: {ignition_date}')
+
         point = shape(feature['geometry'])
         lon = point.coords[0][0]
         lat = point.coords[0][1]
 
         yesterday = date.today() - timedelta(days=1)
-    
-        generate_data(yesterday, (lat, lon), fire_number)        
+
+        generate_data(yesterday, (lat, lon), fire_number, current_size)
 
     # for a particular date:
     # date_of_interest = date(2021, 8, 23)
