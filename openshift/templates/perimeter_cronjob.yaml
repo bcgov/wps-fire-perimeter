@@ -35,7 +35,7 @@ parameters:
   - name: JOB_NAME
     value: fire-perimeter
   - name: SCHEDULE
-    value: "28 * * * *"
+    value: "31 12 * * *"
     required: true
   - name: POSTGRES_WRITE_HOST
     required: true
