@@ -4,6 +4,30 @@
 
 Google Earth Engine does not work on versions newer than 3.8.*
 
+## About
+
+# Fire Boundaries
+
+Goal: Generate fire perimeter from satellite imagery. Remove need for manual generation using helicopter.
+Issues: Dependant on cloud cover!
+Issues: Need a government google account to productionize this.
+
+- [x] command line: Generate raster (burn area + rgb) given bounding area & date.
+- [ ] command line: Output must contain metadata (we need to know the source).
+- [x] command line: Generate polygon given bounding area.
+- [ ] command line: Generate polygon + raster given minimum bounding area & date - bounding area increases automatically to match fire area.
+- [x] command line: Generate N polygon + raster pairs based on public currently active fires greater than Y hectares.
+- [ ] command line: polygon + raster generated are uploaded to object store.
+- [x] openshift cronjob: job runs automatically on a daily basis.
+- [ ] spin up an instance of geoserver.
+- [ ] push raster + polygon to geoserver.
+- [x] spin this into it's own project on github.
+- [ ] component diagram.
+
+Later:
+
+- [ ] MODIS + VIIRS as source. Current algorithm doesn't work with lots of cloud and smoke. Smoke may cause holes in the perimiter.
+
 ## General
 
 - Create `.env` file (you can copy `.env.example` and set appropriate values)
