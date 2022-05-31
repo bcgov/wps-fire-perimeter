@@ -1,15 +1,14 @@
 import json
 from datetime import datetime, date
 from urllib.parse import quote_plus as urlquote
-from shapely.geometry import shape, MultiPolygon
+from shapely.geometry import shape, MultiPolygon, Point
 from shapely import wkb
-from sqlalchemy import UniqueConstraint, create_engine, MetaData, Table, Column, Integer, DATE, TIMESTAMP, String
+from sqlalchemy import UniqueConstraint, create_engine, MetaData, Table, Column, Integer, DATE, TIMESTAMP, String, Float
 from geoalchemy2.types import Geometry
 from decouple import config
 
 
-def create_table_schema(meta_data: MetaData, table_name: str, geom_type: str,
-                        srid: int) -> Table:
+def create_table_schema(meta_data: MetaData, table_name: str, srid: int) -> Table:
     """
     Create a table schema.
     geom_type: geometry type (e.g. POLYGON or MULTIPOLYGON)
@@ -17,9 +16,13 @@ def create_table_schema(meta_data: MetaData, table_name: str, geom_type: str,
     """
     return Table(table_name, meta_data,
                  Column('id', Integer(), primary_key=True, nullable=False),
-                 Column('geom', Geometry(geometry_type=geom_type, srid=srid, spatial_index=True,
-                        from_text='ST_GeomFromEWKT', name='geometry'), nullable=False),
+                 Column('geom', Geometry(geometry_type='MULTIPOLYGON', srid=srid, spatial_index=True,
+                        from_text='ST_GeomFromEWKT', name='geometry'), nullable=False),                 
+                 Column('date_range', Integer(), nullable=False,
+                        comment='Number of days used to generate the fire perimeter'),
                  Column('fire_number', String(), nullable=False),
+                 Column('latitude', Float(), nullable=False, comment='Latitude of the fire'),
+                 Column('longitude', Float(), nullable=False, comment='Longitude of the fire'),
                  Column('date_of_interest', DATE(), nullable=False),
                  Column('create_date', TIMESTAMP(
                      timezone=True), nullable=False),
@@ -40,7 +43,7 @@ def construct_multipolygon(filename: str):
     return None
 
 
-def persist_polygon(filename: str, identifier: str, date_of_interest: date):
+def persist_polygon(filename: str, identifier: str, date_of_interest: date, coordinate: Point, date_range: int):
     """
     filename: geojson file
     identifier: fire identifier
@@ -63,7 +66,7 @@ def persist_polygon(filename: str, identifier: str, date_of_interest: date):
 
     srid = 4326
     meta_data = MetaData()
-    table_schema = create_table_schema(meta_data, table, 'MULTIPOLYGON', srid)
+    table_schema = create_table_schema(meta_data, table, srid)
     
     engine = create_engine(db_string, connect_args={
                         'options': '-c timezone=utc'})
@@ -84,10 +87,17 @@ def persist_polygon(filename: str, identifier: str, date_of_interest: date):
             connection.execute(table_schema.update().where(
                 table_schema.c.fire_number == identifier).where(
                     table_schema.c.date_of_interest == date_of_interest).values(
-                        geom=wkt, update_date=now))
+                        geom=wkt,
+                        latitude=coordinate.y,
+                        longitude=coordinate.x,
+                        date_range=date_range,
+                        update_date=now))
         else:
             values = {
                 'geom': wkt,
+                'latitude': coordinate.y,
+                'longitude': coordinate.x,
+                'date_range': date_range,
                 'fire_number': identifier,
                 'date_of_interest': date_of_interest,
                 'create_date': now,
