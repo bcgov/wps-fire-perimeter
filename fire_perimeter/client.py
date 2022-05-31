@@ -1,4 +1,6 @@
+from ast import copy_location
 import os
+import shutil
 import tempfile
 import asyncio
 from datetime import date, timedelta
@@ -106,11 +108,44 @@ def polygonize(geotiff_filename, geojson_filename):
     print(f'{geojson_filename} written')
 
 
+def calculate_bounding_box(point_of_intereset: Point, current_size: float):
+    """
+    Somewhat verbose function, but easy to read
+    """
+    # current size is in hectares, and let's assume it's grown some:
+    adjusted_hectares = current_size * \
+        float(config('bounding_box_multiple', 2))
+    # width in meters
+    width_in_m = adjusted_hectares * 100
+    # but we're measuring from the starting point, so we only need half of that
+    distance = width_in_m / 2
+
+    lon = point_of_intereset.x
+    lat = point_of_intereset.y
+    g = Geod(ellps='WGS84')
+
+    # north
+    n = g.fwd(lon, lat, 0, distance)
+    # south
+    s = g.fwd(lon, lat, 180, distance)
+    # east
+    e = g.fwd(lon, lat, 90, distance)
+    # west
+    w = g.fwd(lon, lat, 270, distance)
+
+    west = w[0]
+    south = s[1]
+    east = e[0]
+    north = n[1]
+
+    return (west, south, east, north)
+
+
 def generate_raster(date_of_interest: date,
                     point_of_interest: Point,
                     classification_geotiff_filename: str,
                     rgb_geotiff_filename: str,
-                    current_size: int,
+                    current_size: float,
                     date_range: int,
                     cloud_cover: float):
     """
@@ -140,14 +175,16 @@ def generate_raster(date_of_interest: date,
 
     # ee.Geometry.BBox(west, south, east, north)
     # Latitude is denoted by Y (northing) and Longitude by X (Easting)
-    lon = point_of_interest.x
-    lat = point_of_interest.y
-    # for a super big fire - longitude +/- 0.3, latitude +/- 0.2
-    # TODO: figure this out using hectare estimate. (current_size)
-    west = lon-0.3
-    south = lat-0.2
-    east = lon+0.3
-    north = lat+0.2
+    # lon = point_of_interest.x
+    # lat = point_of_interest.y
+    # # for a super big fire - longitude +/- 0.3, latitude +/- 0.2
+    # # TODO: figure this out using hectare estimate. (current_size)
+    # west = lon-0.3
+    # south = lat-0.2
+    # east = lon+0.3
+    # north = lat+0.2
+    west, south, east, north = calculate_bounding_box(
+        point_of_interest, current_size)
 
     bbox = ee.Geometry.BBox(west, south, east, north)
     # print(bbox)
@@ -197,7 +234,14 @@ def calculate_area_fail(filename):
     print(f'total_area {total_area}')
 
 
-async def generate_data(date_of_interest: date, point_of_interest: Point, identifier: str, current_size: int):
+def copy_file_local(source, target):
+    print(f'saving {target}')
+    if os.path.exists(target):
+        os.remove(target)
+    shutil.copy(source, target)
+
+
+async def generate_data(date_of_interest: date, point_of_interest: Point, identifier: str, current_size: float):
     """
     Generate a geojson file for the fire classification, and a geotiff file for the RGB image.
     """
@@ -206,12 +250,12 @@ async def generate_data(date_of_interest: date, point_of_interest: Point, identi
         # We use a temporary file to generate raster files and polygons. When we're done, we're throwing away
         # all the files, since we're only persisting the resultant polygons.
 
-        classification_geotiff_filename = os.path.join(os.getcwd(
-        ), temporary_path, f'{identifier}_{date_of_interest.isoformat()}_binary_classification.tif')
-        geojson_filename = os.path.join(os.getcwd(
-        ), temporary_path, f'{identifier}_{date_of_interest.isoformat()}_binary_classification.json')
-        rgb_geotiff_filename = os.path.join(os.getcwd(
-        ), temporary_path, f'{identifier}_{date_of_interest.isoformat()}_rgb.tif')
+        classification_geotiff_filename = os.path.join(
+            temporary_path, f'{identifier}_{date_of_interest.isoformat()}_binary_classification.tif')
+        geojson_filename = os.path.join(
+            temporary_path, f'{identifier}_{date_of_interest.isoformat()}_binary_classification.json')
+        rgb_geotiff_filename = os.path.join(
+            temporary_path, f'{identifier}_{date_of_interest.isoformat()}_rgb.tif')
 
         date_range = int(config('date_range', 14))
         cloud_cover = float(config('cloud_cover', 22.2))
@@ -244,6 +288,16 @@ async def generate_data(date_of_interest: date, point_of_interest: Point, identi
         except Exception as e:
             print(f'Could not store RGB image: {e}')
 
+        if config('save_local', 'false') == 'true':
+            if not os.path.exists('output'):
+                os.mkdir('output')
+            copy_file_local(rgb_geotiff_filename,
+                            os.path.join(os.getcwd(),
+                                         'output', f'{identifier}_{date_of_interest.isoformat()}_rgb.tif'))
+            copy_file_local(classification_geotiff_filename,
+                            os.path.join(os.getcwd(),
+                                         'output', f'{identifier}_{date_of_interest.isoformat()}_binary_classification.tif'))
+
         # cleanup (do I need this? or will using temp directory be enough?)
         for filename in [classification_geotiff_filename, geojson_filename, rgb_geotiff_filename]:
             if os.path.exists(filename):
@@ -262,6 +316,7 @@ def get_active_fires():
     }
 
     response = requests.get(url, params=params, timeout=60)
+    current_size_threshold = int(config('current_size_threshold', 90))
 
     if response.status_code == 200:
         js = response.json()
@@ -272,8 +327,15 @@ def get_active_fires():
                 fire_status = properties.get('FIRE_STATUS')
                 if fire_status != 'Out':
                     current_size = int(properties.get('CURRENT_SIZE'))
-                    if current_size > 90:
+                    if current_size >= current_size_threshold:
                         yield feature
+                    else:
+                        print(
+                            f'Skipping {fire_status} fire {properties.get("FIRE_NUMBER")} with size {current_size}')
+                else:
+                    pass
+                    # print(
+                    #     f'Skipping fire {properties.get("FIRE_NUMBER")} because it is out')
             except:
                 print('trouble with feature')
     else:
@@ -282,12 +344,10 @@ def get_active_fires():
 
 
 async def main():
-    # persist_polygon('output/test_2021-08-23_binary_classification.json', 'test', date(year=2021, month=8, day=23))
-
     for feature in get_active_fires():
         properties = feature.get('properties', {})
         fire_status = properties.get('FIRE_STATUS')
-        current_size = int(properties.get('CURRENT_SIZE'))
+        current_size = float(properties.get('CURRENT_SIZE'))
         ignition_date = properties.get('IGNITION_DATE')
         fire_number = properties.get('FIRE_NUMBER')
 
@@ -303,7 +363,7 @@ async def main():
     # for a particular date:
     # date_of_interest = date(2021, 8, 23)
     # point_of_interest = Point(-121.6, 51.5)
-    # await generate_data(date_of_interest, point_of_interest, 'test', -1)
+    # await generate_data(date_of_interest, point_of_interest, 'sybrand', 320.0)
 
     # for a bunch of dates:
     # date_of_interest = date(2021, 8, 9)

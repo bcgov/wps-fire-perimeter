@@ -35,7 +35,7 @@ parameters:
   - name: JOB_NAME
     value: fire-perimeter
   - name: SCHEDULE
-    value: "30 12 * * *"
+    value: "28 * * * *"
     required: true
   - name: POSTGRES_WRITE_HOST
     required: true
@@ -114,6 +114,10 @@ objects:
                       value: "14"
                     - name: cloud_cover
                       value: "22.2"
+                    - name: current_size_threshold
+                      value: "90"
+                    - name: bounding_box_multiple
+                      value: "2.0"
                     - name: OBJECT_STORE_SERVER
                       valueFrom:
                         secretKeyRef:
