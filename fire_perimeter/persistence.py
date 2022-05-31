@@ -17,18 +17,23 @@ def create_table_schema(meta_data: MetaData, table_name: str, srid: int) -> Tabl
     return Table(table_name, meta_data,
                  Column('id', Integer(), primary_key=True, nullable=False),
                  Column('geom', Geometry(geometry_type='MULTIPOLYGON', srid=srid, spatial_index=True,
-                        from_text='ST_GeomFromEWKT', name='geometry'), nullable=False),                 
+                        from_text='ST_GeomFromEWKT', name='geometry'), nullable=False),
                  Column('date_range', Integer(), nullable=False,
                         comment='Number of days used to generate the fire perimeter'),
+                 Column('cloud_cover', Float(), nullable=False,
+                        comment='Cloud cover max percentage used to generate the fire perimeter'),
                  Column('fire_number', String(), nullable=False),
-                 Column('latitude', Float(), nullable=False, comment='Latitude of the fire'),
-                 Column('longitude', Float(), nullable=False, comment='Longitude of the fire'),
+                 Column('latitude', Float(), nullable=False,
+                        comment='Latitude of the fire'),
+                 Column('longitude', Float(), nullable=False,
+                        comment='Longitude of the fire'),
                  Column('date_of_interest', DATE(), nullable=False),
                  Column('create_date', TIMESTAMP(
                      timezone=True), nullable=False),
                  Column('update_date', TIMESTAMP(
                      timezone=True), nullable=False),
-                 UniqueConstraint('fire_number', 'date_of_interest', name='uix_fire_number_date_of_interest'),
+                 UniqueConstraint('fire_number', 'date_of_interest',
+                                  name='uix_fire_number_date_of_interest'),
                  schema=None)
 
 
@@ -43,7 +48,12 @@ def construct_multipolygon(filename: str):
     return None
 
 
-def persist_polygon(filename: str, identifier: str, date_of_interest: date, coordinate: Point, date_range: int):
+def persist_polygon(filename: str,
+                    identifier: str,
+                    date_of_interest: date,
+                    coordinate: Point,
+                    date_range: int,
+                    cloud_cover: float):
     """
     filename: geojson file
     identifier: fire identifier
@@ -67,20 +77,20 @@ def persist_polygon(filename: str, identifier: str, date_of_interest: date, coor
     srid = 4326
     meta_data = MetaData()
     table_schema = create_table_schema(meta_data, table, srid)
-    
+
     engine = create_engine(db_string, connect_args={
-                        'options': '-c timezone=utc'})
+        'options': '-c timezone=utc'})
 
     with engine.connect() as connection:
         if not engine.dialect.has_table(connection, table):
             table_schema.create(engine)
-        
+
         wkt = wkb.dumps(multi_polygon, hex=True, srid=srid)
 
         result = connection.execute(table_schema.select().where(
             table_schema.c.fire_number == identifier).where(
                 table_schema.c.date_of_interest == date_of_interest)).first()
-        
+
         now = datetime.now()
 
         if result:
@@ -91,6 +101,8 @@ def persist_polygon(filename: str, identifier: str, date_of_interest: date, coor
                         latitude=coordinate.y,
                         longitude=coordinate.x,
                         date_range=date_range,
+                        fire_number=identifier,
+                        cloud_cover=cloud_cover,
                         update_date=now))
         else:
             values = {
@@ -99,12 +111,9 @@ def persist_polygon(filename: str, identifier: str, date_of_interest: date, coor
                 'longitude': coordinate.x,
                 'date_range': date_range,
                 'fire_number': identifier,
+                'cloud_cover': cloud_cover,
                 'date_of_interest': date_of_interest,
                 'create_date': now,
                 'update_date': now,
             }
             connection.execute(table_schema.insert().values(values))
-
-
-
-        

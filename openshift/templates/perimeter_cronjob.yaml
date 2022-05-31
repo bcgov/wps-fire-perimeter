@@ -35,7 +35,7 @@ parameters:
   - name: JOB_NAME
     value: fire-perimeter
   - name: SCHEDULE
-    value: "0 * * * *"
+    value: "30 12 * * *"
     required: true
   - name: POSTGRES_WRITE_HOST
     required: true
@@ -110,4 +110,28 @@ objects:
                         secretKeyRef:
                           name: ${GLOBAL_NAME}-global
                           key: earth-engine.private_key
+                    - name: date_range
+                      value: "14"
+                    - name: cloud_cover
+                      value: "22.2"
+                    - name: OBJECT_STORE_SERVER
+                      valueFrom:
+                        secretKeyRef:
+                          name: ${GLOBAL_NAME}-global
+                          key: object-store-server
+                    - name: OBJECT_STORE_USER_ID
+                      valueFrom:
+                        secretKeyRef:
+                          name: ${GLOBAL_NAME}-global
+                          key: object-store-user-id
+                    - name: OBJECT_STORE_SECRET
+                      valueFrom:
+                        secretKeyRef:
+                          name: ${GLOBAL_NAME}-global
+                          key: object-store-secret
+                    - name: OBJECT_STORE_BUCKET
+                      valueFrom:
+                        secretKeyRef:
+                          name: ${GLOBAL_NAME}-global
+                          key: object-store-bucket
               restartPolicy: OnFailure

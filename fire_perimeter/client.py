@@ -111,7 +111,8 @@ def generate_raster(date_of_interest: date,
                     classification_geotiff_filename: str,
                     rgb_geotiff_filename: str,
                     current_size: int,
-                    date_range: int):
+                    date_range: int,
+                    cloud_cover: float):
     """
     Step back 14 days from the the of interest, and classify an area around the point of interest.
     """
@@ -128,8 +129,6 @@ def generate_raster(date_of_interest: date,
     start_date = date_of_interest - timedelta(days=date_range)
 
     print(f'start date: {start_date}')
-
-    cloud_cover = float(config('cloud_cover', 22.2))
 
     data = apply_cloud_cover_threshold(
         ee.Date(f'{start_date.isoformat()}T00:00', 'Etc/GMT-8'),
@@ -206,26 +205,33 @@ async def generate_data(date_of_interest: date, point_of_interest: Point, identi
     with tempfile.TemporaryDirectory() as temporary_path:
         # We use a temporary file to generate raster files and polygons. When we're done, we're throwing away
         # all the files, since we're only persisting the resultant polygons.
-        
-        classification_geotiff_filename = os.path.join(os.getcwd(), temporary_path, f'{identifier}_{date_of_interest.isoformat()}_binary_classification.tif')
-        geojson_filename = os.path.join(os.getcwd(), temporary_path, f'{identifier}_{date_of_interest.isoformat()}_binary_classification.json')
-        rgb_geotiff_filename = os.path.join(os.getcwd(), temporary_path,f'{identifier}_{date_of_interest.isoformat()}_rgb.tif')
+
+        classification_geotiff_filename = os.path.join(os.getcwd(
+        ), temporary_path, f'{identifier}_{date_of_interest.isoformat()}_binary_classification.tif')
+        geojson_filename = os.path.join(os.getcwd(
+        ), temporary_path, f'{identifier}_{date_of_interest.isoformat()}_binary_classification.json')
+        rgb_geotiff_filename = os.path.join(os.getcwd(
+        ), temporary_path, f'{identifier}_{date_of_interest.isoformat()}_rgb.tif')
 
         date_range = int(config('date_range', 14))
+        cloud_cover = float(config('cloud_cover', 22.2))
         generate_raster(
             date_of_interest=date_of_interest,
             point_of_interest=point_of_interest,
             classification_geotiff_filename=classification_geotiff_filename,
             rgb_geotiff_filename=rgb_geotiff_filename,
             current_size=current_size,
-            date_range=date_range)
+            date_range=date_range,
+            cloud_cover=cloud_cover)
 
         polygonize(classification_geotiff_filename, geojson_filename)
 
         calculate_area(geojson_filename)
 
         try:
-            persist_polygon(geojson_filename, identifier, date_of_interest, point_of_interest, date_range)
+            persist_polygon(geojson_filename, identifier,
+                            date_of_interest, point_of_interest,
+                            date_range, cloud_cover)
         except Exception as e:
             print(f'Could not persist polygon: {e}')
 
@@ -237,8 +243,6 @@ async def generate_data(date_of_interest: date, point_of_interest: Point, identi
                     await client.put_object(Bucket=bucket, Key=target_path, Body=f)
         except Exception as e:
             print(f'Could not store RGB image: {e}')
-
-
 
         # cleanup (do I need this? or will using temp directory be enough?)
         for filename in [classification_geotiff_filename, geojson_filename, rgb_geotiff_filename]:
