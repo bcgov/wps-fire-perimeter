@@ -1,6 +1,6 @@
 import os
 import tempfile
-from typing import Tuple
+import asyncio
 from datetime import date, timedelta
 import struct
 import json
@@ -16,6 +16,7 @@ from shapely.geometry import shape, Point
 from fire_perimeter.active_fire import apply_classification_rule, apply_cloud_cover_threshold
 from fire_perimeter.auth import jwt_token
 from fire_perimeter.persistence import persist_polygon
+from fire_perimeter.store import get_client
 
 
 def write_geotiff(data, bbox, filename, params={}):
@@ -154,8 +155,8 @@ def generate_raster(date_of_interest: date,
 
     write_geotiff(fires, bbox, classification_geotiff_filename)
     # skipping geotiff, since we're just throwing it away in the end!
-    # write_geotiff(data, bbox, rgb_geotiff_filename,
-    #               {'bands': ['B12', 'B11', 'B9']})
+    write_geotiff(data, bbox, rgb_geotiff_filename,
+                  {'bands': ['B12', 'B11', 'B9']})
 
 
 def calculate_area(filename):
@@ -197,7 +198,7 @@ def calculate_area_fail(filename):
     print(f'total_area {total_area}')
 
 
-def generate_data(date_of_interest: date, point_of_interest: Point, identifier: str, current_size: int):
+async def generate_data(date_of_interest: date, point_of_interest: Point, identifier: str, current_size: int):
     """
     Generate a geojson file for the fire classification, and a geotiff file for the RGB image.
     """
@@ -208,7 +209,7 @@ def generate_data(date_of_interest: date, point_of_interest: Point, identifier: 
         
         classification_geotiff_filename = os.path.join(os.getcwd(), temporary_path, f'{identifier}_{date_of_interest.isoformat()}_binary_classification.tif')
         geojson_filename = os.path.join(os.getcwd(), temporary_path, f'{identifier}_{date_of_interest.isoformat()}_binary_classification.json')
-        rgb_geotiff_filename = os.path.join(os.getcwd(), temporary_path,f'output/{identifier}_{date_of_interest.isoformat()}_rgb.tif')
+        rgb_geotiff_filename = os.path.join(os.getcwd(), temporary_path,f'{identifier}_{date_of_interest.isoformat()}_rgb.tif')
 
         date_range = int(config('date_range', 14))
         generate_raster(
@@ -227,6 +228,17 @@ def generate_data(date_of_interest: date, point_of_interest: Point, identifier: 
             persist_polygon(geojson_filename, identifier, date_of_interest, point_of_interest, date_range)
         except Exception as e:
             print(f'Could not persist polygon: {e}')
+
+        try:
+            target_path = f'fire_perimeter/{identifier}/{identifier}_{date_of_interest.isoformat()}_rgb.tif'
+            async with get_client() as (client, bucket):
+                with open(rgb_geotiff_filename, 'rb') as f:
+                    print(f'Uploading to S3... {target_path}')
+                    await client.put_object(Bucket=bucket, Key=target_path, Body=f)
+        except Exception as e:
+            print(f'Could not store RGB image: {e}')
+
+
 
         # cleanup (do I need this? or will using temp directory be enough?)
         for filename in [classification_geotiff_filename, geojson_filename, rgb_geotiff_filename]:
@@ -265,29 +277,29 @@ def get_active_fires():
         print(response.text)
 
 
-if __name__ == '__main__':
+async def main():
     # persist_polygon('output/test_2021-08-23_binary_classification.json', 'test', date(year=2021, month=8, day=23))
 
-    # for feature in get_active_fires():
-    #     properties = feature.get('properties', {})
-    #     fire_status = properties.get('FIRE_STATUS')
-    #     current_size = int(properties.get('CURRENT_SIZE'))
-    #     ignition_date = properties.get('IGNITION_DATE')
-    #     fire_number = properties.get('FIRE_NUMBER')
+    for feature in get_active_fires():
+        properties = feature.get('properties', {})
+        fire_status = properties.get('FIRE_STATUS')
+        current_size = int(properties.get('CURRENT_SIZE'))
+        ignition_date = properties.get('IGNITION_DATE')
+        fire_number = properties.get('FIRE_NUMBER')
 
-    #     print(
-    #         f'{fire_number} {fire_status} current size: {current_size}, ignition date: {ignition_date}')
+        print(
+            f'{fire_number} {fire_status} current size: {current_size}, ignition date: {ignition_date}')
 
-    #     point = shape(feature['geometry'])
+        point = shape(feature['geometry'])
 
-    #     yesterday = date.today() - timedelta(days=1)
+        yesterday = date.today() - timedelta(days=1)
 
-    #     generate_data(yesterday, point, fire_number, current_size)
+        await generate_data(yesterday, point, fire_number, current_size)
 
     # for a particular date:
-    date_of_interest = date(2021, 8, 23)
-    point_of_interest = Point(-121.6, 51.5)
-    generate_data(date_of_interest, point_of_interest, 'test', -1)
+    # date_of_interest = date(2021, 8, 23)
+    # point_of_interest = Point(-121.6, 51.5)
+    # await generate_data(date_of_interest, point_of_interest, 'test', -1)
 
     # for a bunch of dates:
     # date_of_interest = date(2021, 8, 9)
@@ -299,3 +311,9 @@ if __name__ == '__main__':
     # once you have a polygon, you can calculate the area: https://pyproj4.github.io/pyproj/stable/examples.html#geodesic-area
 
     # https://openmaps.gov.bc.ca/geo/pub/WHSE_LAND_AND_NATURAL_RESOURCE.PROT_CURRENT_FIRE_PNTS_SP/ows?service=WMS&request=GetCapabilities
+
+
+if __name__ == '__main__':
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
+    loop.close()
