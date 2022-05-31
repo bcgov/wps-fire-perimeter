@@ -9,7 +9,7 @@ RUN apt-get -y update --fix-missing && apt-get -y upgrade && TZ="Etc/UTC" DEBIAN
 # Install poetry https://python-poetry.org/docs/#installation
 RUN curl -sSL https://install.python-poetry.org | POETRY_HOME=/opt/poetry python3 -
 
-# Create home for pyenv
+# Create home for pyenv, and assign ownership to default user
 ENV HOME=/opt/pyenv
 RUN mkdir -p $HOME
 RUN chown 1001:1001 $HOME

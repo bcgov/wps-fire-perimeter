@@ -17,8 +17,8 @@ def jwt_token():
     # https://developers.google.com/identity/protocols/oauth2/service-account#python_2
 
     # we take our service account details as provided by the google console:
-    service_account_config = config('service_account_config')
-    if os.path.exists(service_account_config):
+    service_account_config = config('service_account_config', None)
+    if service_account_config and os.path.exists(service_account_config):
         with open(service_account_config) as f:
             service_account = json.load(f)
     else:
