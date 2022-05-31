@@ -1,0 +1,141 @@
+kind: Template
+apiVersion: template.openshift.io/v1
+metadata:
+  name: ${JOB_NAME}-cronjob-template
+  annotations:
+    description: "Scheduled task to run fire-perimeter."
+    tags: "cronjob,c-haines"
+labels:
+  app.kubernetes.io/part-of: "${NAME}"
+  app: ${NAME}-${SUFFIX}
+parameters:
+  - name: NAME
+    description: Module name
+    value: wps-fire-perimeter
+  - name: IMAGE_REGISTRY
+    description: Image registry for imagestream.
+    value: image-registry.openshift-image-registry.svc:5000
+    required: true
+  - name: IMAGE_NAME
+    required: true
+    value: wps-fire-perimeter
+  - name: IMAGE_TAG
+    required: true
+    value: latest
+  - name: GLOBAL_NAME
+    description: Name of global Module
+    value: wps
+  - name: SUFFIX
+    description: Deployment suffix, e.g. pr-###
+    required: true
+    value: demo
+  - name: PROJ_TOOLS
+    required: true
+    value: e1e498-tools
+  - name: JOB_NAME
+    value: fire-perimeter
+  - name: SCHEDULE
+    value: "31 12 * * *"
+    required: true
+  - name: POSTGRES_WRITE_HOST
+    required: true
+    value: patroni-wps-tileserv-replica
+  - name: POSTGRES_USER
+    required: true
+    value: featureserv
+  - name: POSTGRES_DATABASE
+    required: true
+    value: featureserv
+  - name: POSTGRES_TABLE
+    required: true
+    value: featureserv
+objects:
+  - kind: CronJob
+    apiVersion: batch/v1
+    metadata:
+      name: ${JOB_NAME}
+      labels:
+        cronjob: ${JOB_NAME}
+    spec:
+      schedule: ${SCHEDULE}
+      concurrencyPolicy: "Replace"
+      jobTemplate:
+        metadata:
+          labels:
+            cronjob: ${JOB_NAME}
+        spec:
+          template:
+            spec:
+              containers:
+                - name: ${JOB_NAME}
+                  resources:
+                    limits:
+                      cpu: "0"
+                      memory: "0"
+                    requests:
+                      cpu: "0"
+                      memory: "0"
+                  image: ${IMAGE_REGISTRY}/${PROJ_TOOLS}/${IMAGE_NAME}:${IMAGE_TAG}
+                  imagePullPolicy: "Always"
+                  env:
+                    - name: user
+                      value: ${POSTGRES_USER}
+                    - name: password
+                      valueFrom:
+                        secretKeyRef:
+                          name: ${GLOBAL_NAME}-global
+                          key: featureserv-db-password
+                    - name: host
+                      value: ${POSTGRES_WRITE_HOST}
+                    - name: port
+                      value: "5432"
+                    - name: dbname
+                      value: ${POSTGRES_DATABASE}
+                    - name: table
+                      value: ${POSTGRES_TABLE}
+                    - name: client_email
+                      valueFrom:
+                        secretKeyRef:
+                          name: ${GLOBAL_NAME}-global
+                          key: earth-engine.client_email
+                    - name: service_account_config
+                      value: invalid
+                    - name: private_key_id
+                      valueFrom:
+                        secretKeyRef:
+                          name: ${GLOBAL_NAME}-global
+                          key: earth-engine.private_key_id
+                    - name: private_key
+                      valueFrom:
+                        secretKeyRef:
+                          name: ${GLOBAL_NAME}-global
+                          key: earth-engine.private_key
+                    - name: date_range
+                      value: "14"
+                    - name: cloud_cover
+                      value: "22.2"
+                    - name: current_size_threshold
+                      value: "90"
+                    - name: bounding_box_multiple
+                      value: "2.0"
+                    - name: OBJECT_STORE_SERVER
+                      valueFrom:
+                        secretKeyRef:
+                          name: ${GLOBAL_NAME}-global
+                          key: object-store-server
+                    - name: OBJECT_STORE_USER_ID
+                      valueFrom:
+                        secretKeyRef:
+                          name: ${GLOBAL_NAME}-global
+                          key: object-store-user-id
+                    - name: OBJECT_STORE_SECRET
+                      valueFrom:
+                        secretKeyRef:
+                          name: ${GLOBAL_NAME}-global
+                          key: object-store-secret
+                    - name: OBJECT_STORE_BUCKET
+                      valueFrom:
+                        secretKeyRef:
+                          name: ${GLOBAL_NAME}-global
+                          key: object-store-bucket
+              restartPolicy: OnFailure

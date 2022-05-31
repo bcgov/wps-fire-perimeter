@@ -1,70 +1,93 @@
+from ast import copy_location
+import os
+import shutil
+import tempfile
+import asyncio
+from datetime import date, timedelta
+import struct
 import json
+import numpy
 import requests
-import jwt
-from datetime import datetime, timedelta
 from google.oauth2.credentials import Credentials
 import ee
-from osgeo import gdal, ogr
-
-
-def maskS2clouds(image):
-    """ function from online example """
-    qa = image.select('QA60') # Bits 10, 11: clouds, cirrus, resp.
-    cloudBitMask = 1 << 10 # set both 0 == clear conditions
-    cirrusBitMask = 1 << 11
-    mask = qa.bitwiseAnd(cloudBitMask).eq(0).And(qa.bitwiseAnd(cirrusBitMask).eq(0))
-    return image.updateMask(mask).divide(10000)
-
-def apply_cloud_cover_threshold(start_date, n_days, cloud_threshold):
-    data = ee.ImageCollection('COPERNICUS/S2_SR').filterDate(
-        start_date,
-        start_date.advance(n_days, 'day'))
-
-    # apply cloud threshold and mask
-    data = data.filter(ee.Filter.lt(
-        'CLOUDY_PIXEL_PERCENTAGE',
-        cloud_threshold)).map(maskS2clouds).mean()
-
-    return data
-
-
-def apply_classification_rule(data):
-    # get DEM, LandCover, Sentinel-2 "L2A" (level two atmospherically-
-    # corrected "bottom of atmosphere (BOA) reflectance) data """
-    nasa_dem = ee.Image('NASA/NASADEM_HGT/001').select('elevation') 
-    land_cover = ee.ImageCollection("ESA/WorldCover/v100").first()
-    
-
-    # apply classification rule
-    rule = 'R > G && R > B && (LC != 80) && (LC != 50) && (LC != 70) && (DEM < 1500)'
-    r = data.expression(rule, {'R': data.select('B12'),
-                            'G': data.select('B11'),
-                            'B': data.select('B9'),
-                            'LC': land_cover.select('Map'),
-                            'DEM': nasa_dem})
-    
-    return r
+from numpy import ndarray
+from osgeo import gdal, ogr, osr
+from pyproj import Geod
+from decouple import config
+from shapely.geometry import shape, Point
+from fire_perimeter.active_fire import apply_classification_rule, apply_cloud_cover_threshold
+from fire_perimeter.auth import jwt_token
+from fire_perimeter.persistence import persist_polygon
+from fire_perimeter.store import get_client
 
 
 def write_geotiff(data, bbox, filename, params={}):
     # https://developers.google.com/earth-engine/apidocs/ee-image-getthumburl
-    base_params = {'min': 0, 'max': 1, 'dimensions': 1024, 'region': bbox, 'format': 'GEO_TIFF'}
+    base_params = {'min': 0, 'max': 1, 'dimensions': 1024,
+                   'region': bbox, 'format': 'GEO_TIFF'}
 
     url = data.getDownloadUrl(dict(base_params, **params))
     response = requests.get(url, timeout=60)
 
-    print(response.status_code)
+    # print(response.status_code)
     if response.status_code == 200:
         with open(filename, 'wb') as f:
             f.write(response.content)
-        print(f'{filename} written')
+    else:
+        print(f'failed to write {filename}')
+        # print(f'{filename} written')
 
-    
+
+def create_in_memory_band(data: ndarray, cols, rows, projection, geotransform):
+    """ Create an in memory data band to represent a single raster layer.
+    See https://gdal.org/user/raster_data_model.html#raster-band for a complete
+    description of what a raster band is.
+    """
+    mem_driver = gdal.GetDriverByName('MEM')
+
+    dataset = mem_driver.Create('memory', cols, rows, 1, gdal.GDT_Byte)
+    dataset.SetProjection(projection)
+    dataset.SetGeoTransform(geotransform)
+    band = dataset.GetRasterBand(1)
+    band.WriteArray(data)
+
+    return dataset, band
+
+
+def read_scanline(band, yoff):
+    """ Read a band scanline (up to the y-offset), returning an array of values.
+
+    A raster (image) may consist of multiple bands (e.g. for a colour image, one may have a band for
+    red, green, blue, and alpha).
+    A scanline, is a single row of a band.
+
+    band, definition: https://gdal.org/user/raster_data_model.html#raster-band
+    fetching a raster band: https://gdal.org/tutorials/raster_api_tut.html#fetching-a-raster-band
+    """
+    scanline = band.ReadRaster(xoff=0, yoff=yoff,
+                               xsize=band.XSize, ysize=1,
+                               buf_xsize=band.XSize, buf_ysize=1,
+                               buf_type=gdal.GDT_Float32)
+    return struct.unpack('f' * band.XSize, scanline)
+
 
 def polygonize(geotiff_filename, geojson_filename):
-    # TODO: we only need polygons for 1, not for 0!
     classification = gdal.Open(geotiff_filename, gdal.GA_ReadOnly)
     band = classification.GetRasterBand(1)
+
+    projection = classification.GetProjection()
+    geotransform = classification.GetGeoTransform()
+    rows = band.YSize
+    cols = band.XSize
+
+    # generate mask data
+    mask_data = numpy.empty([rows, cols], bool)
+    for y_row_index in range(rows):
+        row = read_scanline(band, y_row_index)
+        for index, cell in enumerate(row):
+            mask_data[y_row_index, index] = cell == 1
+    mask_ds, mask_band = create_in_memory_band(
+        mask_data, cols, rows, projection, geotransform)
 
     # Create a GeoJSON layer.
     geojson_driver = ogr.GetDriverByName('GeoJSON')
@@ -75,15 +98,59 @@ def polygonize(geotiff_filename, geojson_filename):
     dst_layer.CreateField(field_name)
 
     # Turn the rasters into polygons.
-    gdal.Polygonize(band, None, dst_layer, 0, [], callback=None)
+    gdal.Polygonize(band, mask_band, dst_layer, 0, [], callback=None)
 
     # Ensure that all data in the target dataset is written to disk.
     dst_ds.FlushCache()
     # Explicitly clean up (is this needed?)
-    del dst_ds, classification
+
+    del dst_ds, classification, mask_ds
+    print(f'{geojson_filename} written')
 
 
-def main():
+def calculate_bounding_box(point_of_intereset: Point, current_size: float):
+    """
+    Somewhat verbose function, but easy to read
+    """
+    # current size is in hectares, and let's assume it's grown some:
+    adjusted_hectares = current_size * \
+        float(config('bounding_box_multiple', 2))
+    # width in meters
+    width_in_m = adjusted_hectares * 100
+    # but we're measuring from the starting point, so we only need half of that
+    distance = width_in_m / 2
+
+    lon = point_of_intereset.x
+    lat = point_of_intereset.y
+    g = Geod(ellps='WGS84')
+
+    # north
+    n = g.fwd(lon, lat, 0, distance)
+    # south
+    s = g.fwd(lon, lat, 180, distance)
+    # east
+    e = g.fwd(lon, lat, 90, distance)
+    # west
+    w = g.fwd(lon, lat, 270, distance)
+
+    west = w[0]
+    south = s[1]
+    east = e[0]
+    north = n[1]
+
+    return (west, south, east, north)
+
+
+def generate_raster(date_of_interest: date,
+                    point_of_interest: Point,
+                    classification_geotiff_filename: str,
+                    rgb_geotiff_filename: str,
+                    current_size: float,
+                    date_range: int,
+                    cloud_cover: float):
+    """
+    Step back 14 days from the the of interest, and classify an area around the point of interest.
+    """
     # construct jwt token
     token = jwt_token()
 
@@ -93,62 +160,224 @@ def main():
 
     # https://developers.google.com/earth-engine/guides/python_install#syntax
 
-    data = apply_cloud_cover_threshold(
-        ee.Date('2021-08-02T00:00', 'Etc/GMT-8'),
-        14, # date range: [t1, t1 + N_DAYS]
-        22.2 # cloud cover max %
-        )
+    # very unlikely to have a good image for any given date, so we'll go back 14 days...
+    start_date = date_of_interest - timedelta(days=date_range)
 
-    fires =  apply_classification_rule(data)
+    print(f'start date: {start_date}')
+
+    data = apply_cloud_cover_threshold(
+        ee.Date(f'{start_date.isoformat()}T00:00', 'Etc/GMT-8'),
+        date_range,  # date range: [t1, t1 + N_DAYS]
+        cloud_cover  # cloud cover max %
+    )
+
+    fires = apply_classification_rule(data)
 
     # ee.Geometry.BBox(west, south, east, north)
-    bbox = ee.Geometry.BBox(-122, 51.3, -121.2, 51.7)
+    # Latitude is denoted by Y (northing) and Longitude by X (Easting)
+    # lon = point_of_interest.x
+    # lat = point_of_interest.y
+    # # for a super big fire - longitude +/- 0.3, latitude +/- 0.2
+    # # TODO: figure this out using hectare estimate. (current_size)
+    # west = lon-0.3
+    # south = lat-0.2
+    # east = lon+0.3
+    # north = lat+0.2
+    west, south, east, north = calculate_bounding_box(
+        point_of_interest, current_size)
 
-    write_geotiff(fires, bbox, 'binary_classification.tif')
-    write_geotiff(data, bbox, 'rgb.tif', {'bands': ['B12', 'B11', 'B9']})
-    polygonize('binary_classification.tif', 'binary_classification.json')
+    bbox = ee.Geometry.BBox(west, south, east, north)
+    # print(bbox)
+
+    write_geotiff(fires, bbox, classification_geotiff_filename)
+    # skipping geotiff, since we're just throwing it away in the end!
+    write_geotiff(data, bbox, rgb_geotiff_filename,
+                  {'bands': ['B12', 'B11', 'B9']})
 
 
-    
+def calculate_area(filename):
+    # TODO: you have to do some magic here, to re-project to something that uses meters
+    print(filename)
+    driver = ogr.GetDriverByName('GeoJSON')
+    ds = driver.Open(filename, gdal.GA_ReadOnly)
+    layer = ds.GetLayer()
+    source_projection = layer.GetSpatialRef()
+    target_projection = osr.SpatialReference()
+    # target_projection.SetWellKnownGeogCS('NAD83')
+    # TODO: use a better target projection!! I just thumb sucked this one!
+    # https://spatialreference.org/ref/epsg/nad83-utm-zone-10n/
+    target_projection.ImportFromEPSG(26910)
+    transform = osr.CoordinateTransformation(
+        source_projection, target_projection)
+    area_total = 0
+    for feature in layer:
+        transformed = feature.GetGeometryRef()
+        transformed.Transform(transform)
+        area_total += transformed.GetArea()
+    print(f'Total area: {area_total} m^2, {area_total/10000} hectares')
 
-def jwt_token():
+    del ds
+
+
+def calculate_area_fail(filename):
+    print(filename)
+    with open(filename) as f:
+        js = json.load(f)
+    total_area = 0
+    for feature in js['features']:
+        polygon = shape(feature['geometry'])
+        geod = Geod(ellps="WGS84")
+        area, perim = geod.geometry_area_perimeter(polygon)
+        total_area += area
+        # print(f'area: {area}')
+        # print(f'perim: {perim}')
+    print(f'total_area {total_area}')
+
+
+def copy_file_local(source, target):
+    print(f'saving {target}')
+    if os.path.exists(target):
+        os.remove(target)
+    shutil.copy(source, target)
+
+
+async def generate_data(date_of_interest: date, point_of_interest: Point, identifier: str, current_size: float):
     """
-    https://developers.google.com/identity/protocols/oauth2#serviceaccount
+    Generate a geojson file for the fire classification, and a geotiff file for the RGB image.
     """
 
-    # https://developers.google.com/identity/protocols/oauth2/service-account
-    # https://developers.google.com/earth-engine/reference/rest?hl=en_GB
-    # https://developers.google.com/identity/protocols/oauth2/service-account#python_2
+    with tempfile.TemporaryDirectory() as temporary_path:
+        # We use a temporary file to generate raster files and polygons. When we're done, we're throwing away
+        # all the files, since we're only persisting the resultant polygons.
 
-    # we take our service account details as provided by the google console:
-    with open('/Users/sybrand/Workspace/fire-350717-ca75193a59cc.json') as f:
-        service_account = json.load(f)
+        classification_geotiff_filename = os.path.join(
+            temporary_path, f'{identifier}_{date_of_interest.isoformat()}_binary_classification.tif')
+        geojson_filename = os.path.join(
+            temporary_path, f'{identifier}_{date_of_interest.isoformat()}_binary_classification.json')
+        rgb_geotiff_filename = os.path.join(
+            temporary_path, f'{identifier}_{date_of_interest.isoformat()}_rgb.tif')
 
-    iat = datetime.now()
-    exp = iat + timedelta(seconds=3600)
+        date_range = int(config('date_range', 14))
+        cloud_cover = float(config('cloud_cover', 22.2))
+        generate_raster(
+            date_of_interest=date_of_interest,
+            point_of_interest=point_of_interest,
+            classification_geotiff_filename=classification_geotiff_filename,
+            rgb_geotiff_filename=rgb_geotiff_filename,
+            current_size=current_size,
+            date_range=date_range,
+            cloud_cover=cloud_cover)
 
-    payload = {
-        'iss': service_account['client_email'],
-        'sub': service_account['client_email'],
-        'aud': 'https://earthengine.googleapis.com/',
-        'iat': int(iat.timestamp()),
-        'exp': int(exp.timestamp())
+        polygonize(classification_geotiff_filename, geojson_filename)
+
+        calculate_area(geojson_filename)
+
+        try:
+            persist_polygon(geojson_filename, identifier,
+                            date_of_interest, point_of_interest,
+                            date_range, cloud_cover)
+        except Exception as e:
+            print(f'Could not persist polygon: {e}')
+
+        try:
+            target_path = f'fire_perimeter/{identifier}/{identifier}_{date_of_interest.isoformat()}_rgb.tif'
+            async with get_client() as (client, bucket):
+                with open(rgb_geotiff_filename, 'rb') as f:
+                    print(f'Uploading to S3... {target_path}')
+                    await client.put_object(Bucket=bucket, Key=target_path, Body=f)
+        except Exception as e:
+            print(f'Could not store RGB image: {e}')
+
+        if config('save_local', 'false') == 'true':
+            if not os.path.exists('output'):
+                os.mkdir('output')
+            copy_file_local(rgb_geotiff_filename,
+                            os.path.join(os.getcwd(),
+                                         'output', f'{identifier}_{date_of_interest.isoformat()}_rgb.tif'))
+            copy_file_local(classification_geotiff_filename,
+                            os.path.join(os.getcwd(),
+                                         'output', f'{identifier}_{date_of_interest.isoformat()}_binary_classification.tif'))
+
+        # cleanup (do I need this? or will using temp directory be enough?)
+        for filename in [classification_geotiff_filename, geojson_filename, rgb_geotiff_filename]:
+            if os.path.exists(filename):
+                os.remove(filename)
+
+
+def get_active_fires():
+    url = 'https://openmaps.gov.bc.ca/geo/pub/ows'
+    params = {
+        'service': 'WFS',
+        'version': '2.0.0',
+        'request': 'GetFeature',
+        'typeName': 'pub:WHSE_LAND_AND_NATURAL_RESOURCE.PROT_CURRENT_FIRE_PNTS_SP',
+        'outputFormat': 'json',
+        'srsName': 'EPSG:4326'
     }
 
-    additional_headers = {
-        'kid': service_account['private_key_id']
-    }
+    response = requests.get(url, params=params, timeout=60)
+    current_size_threshold = int(config('current_size_threshold', 90))
 
-    # sign the payload using the private key
-    token = jwt.encode(
-        payload,
-        service_account['private_key'],
-        headers=additional_headers,
-        algorithm='RS256')
+    if response.status_code == 200:
+        js = response.json()
 
-    return token
+        for feature in js['features']:
+            try:
+                properties = feature.get('properties', {})
+                fire_status = properties.get('FIRE_STATUS')
+                if fire_status != 'Out':
+                    current_size = int(properties.get('CURRENT_SIZE'))
+                    if current_size >= current_size_threshold:
+                        yield feature
+                    else:
+                        print(
+                            f'Skipping {fire_status} fire {properties.get("FIRE_NUMBER")} with size {current_size}')
+                else:
+                    pass
+                    # print(
+                    #     f'Skipping fire {properties.get("FIRE_NUMBER")} because it is out')
+            except:
+                print('trouble with feature')
+    else:
+        print(response.status_code)
+        print(response.text)
+
+
+async def main():
+    for feature in get_active_fires():
+        properties = feature.get('properties', {})
+        fire_status = properties.get('FIRE_STATUS')
+        current_size = float(properties.get('CURRENT_SIZE'))
+        ignition_date = properties.get('IGNITION_DATE')
+        fire_number = properties.get('FIRE_NUMBER')
+
+        print(
+            f'{fire_number} {fire_status} current size: {current_size}, ignition date: {ignition_date}')
+
+        point = shape(feature['geometry'])
+
+        yesterday = date.today() - timedelta(days=1)
+
+        await generate_data(yesterday, point, fire_number, current_size)
+
+    # for a particular date:
+    # date_of_interest = date(2021, 8, 23)
+    # point_of_interest = Point(-121.6, 51.5)
+    # await generate_data(date_of_interest, point_of_interest, 'sybrand', 320.0)
+
+    # for a bunch of dates:
+    # date_of_interest = date(2021, 8, 9)
+    # point_of_interest = (51.5, -121.6) # lat, lon
+    # for _ in range(1):
+    #     generate_data(date_of_interest, point_of_interest)
+    #     date_of_interest += timedelta(days=1)
+
+    # once you have a polygon, you can calculate the area: https://pyproj4.github.io/pyproj/stable/examples.html#geodesic-area
+
+    # https://openmaps.gov.bc.ca/geo/pub/WHSE_LAND_AND_NATURAL_RESOURCE.PROT_CURRENT_FIRE_PNTS_SP/ows?service=WMS&request=GetCapabilities
 
 
 if __name__ == '__main__':
-    main()
-    # once you have a polygon, you can calculate the area: https://pyproj4.github.io/pyproj/stable/examples.html#geodesic-area
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
+    loop.close()
