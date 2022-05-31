@@ -11,3 +11,6 @@ run-docker:
 	docker run --network="host" -t --env-file=".env" wps-fire-perimeter:latest
 
 build-run: build run-docker
+
+docker-shell:
+	docker run -it --network="host" --env-file=".env" --entrypoint bash wps-fire-perimeter:latest

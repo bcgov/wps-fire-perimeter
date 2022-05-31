@@ -9,26 +9,31 @@ RUN apt-get -y update --fix-missing && apt-get -y upgrade && TZ="Etc/UTC" DEBIAN
 # Install poetry https://python-poetry.org/docs/#installation
 RUN curl -sSL https://install.python-poetry.org | POETRY_HOME=/opt/poetry python3 -
 
+# Create home for pyenv
+ENV HOME=/opt/pyenv
+RUN mkdir -p $HOME
+RUN chown 1001:1001 $HOME
+
 # Switch back to default user
-RUN useradd -ms /bin/bash defaultuser
-USER defaultuser
-WORKDIR /home/defaultuser
+USER 1001
 
 # Install pyenv (easiest way to get python 3.8.13???)
+WORKDIR $HOME
 RUN curl https://pyenv.run | bash
 # Install python 3.8.13
-RUN /home/defaultuser/.pyenv/bin/pyenv install 3.8.13
+RUN ${HOME}/.pyenv/bin/pyenv install 3.8.13
 
 # Copy files for poetry
 COPY ./poetry.lock /usr/local/src
 COPY ./pyproject.toml /usr/local/src
 
 # Install dependencies using poetry virtual environment 
-RUN cd /usr/local/src && /opt/poetry/bin/poetry env use /home/defaultuser/.pyenv/versions/3.8.13/bin/python && /opt/poetry/bin/poetry run python -m pip install --upgrade pip
-RUN cd /usr/local/src && /opt/poetry/bin/poetry env use /home/defaultuser/.pyenv/versions/3.8.13/bin/python && /opt/poetry/bin/poetry install --no-root --no-dev
-RUN cd /usr/local/src && /opt/poetry/bin/poetry run python -m pip install gdal==$(gdal-config --version)
+WORKDIR /usr/local/src
+RUN /opt/poetry/bin/poetry env use ${HOME}/.pyenv/versions/3.8.13/bin/python
+RUN /opt/poetry/bin/poetry run python -m pip install --upgrade pip
+RUN /opt/poetry/bin/poetry install --no-root --no-dev
+RUN /opt/poetry/bin/poetry run python -m pip install gdal==$(gdal-config --version)
 
 # Copy source files
 COPY ./fire_perimeter/*.py /usr/local/src/fire_perimeter/
-WORKDIR /usr/local/src
 CMD ["/opt/poetry/bin/poetry", "run", "python", "-m", "fire_perimeter.client"]
