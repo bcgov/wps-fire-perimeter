@@ -1,37 +1,52 @@
-# Fire Boundaries using Google Earth Engine
+# Proof Of Concept, Generate Fire Boundaries using Google Earth Engine
 
 [![Lifecycle:Experimental](https://img.shields.io/badge/Lifecycle-Experimental-339999)](https://github.com/bcgov/repomountie/blob/master/doc/lifecycle-badges.md)
 
-Google Earth Engine does not work on versions newer than 3.8.*
-
 ## About
 
-# Fire Boundaries
+This is a proof of concept to generate fire boundaries using Google Earth Engine.
 
-Goal: Generate fire perimeter from satellite imagery. Remove need for manual generation using helicopter.
-Issues: Dependant on cloud cover!
-Issues: Need a government google account to productionize this.
+The goal is to prove the utility of generating fire perimeter from satellite imagery, thus reducing the need for manual generation of perimeters using helicopters.
 
-- [x] command line: Generate raster (burn area + rgb) given bounding area & date.
-- [ ] command line: Output must contain metadata (we need to know the source).
-- [x] command line: Generate polygon given bounding area.
-- [ ] command line: Generate polygon + raster given minimum bounding area & date - bounding area increases automatically to match fire area.
-- [x] command line: Generate N polygon + raster pairs based on public currently active fires greater than Y hectares.
-- [ ] command line: polygon + raster generated are uploaded to object store.
-- [x] openshift cronjob: job runs automatically on a daily basis.
-- [ ] spin up an instance of geoserver.
-- [ ] push raster + polygon to geoserver.
-- [x] spin this into it's own project on github.
-- [ ] component diagram.
+Issue: Current implementation dependant on cloud cover! Current algorithm doesn't work with lots of cloud and smoke. Smoke may cause holes in the perimiter. Consider using MODIS + VIIRS as source.
 
-Later:
+Issue: Need a government google account to productionize this.
 
-- [ ] MODIS + VIIRS as source. Current algorithm doesn't work with lots of cloud and smoke. Smoke may cause holes in the perimiter.
+Credit: The code that identifies fire is basead on code by https://github.com/ashlinrichardson available at:
+https://github.com/bcgov/bcws-psu-research/blob/master/py/gee/active_fire.js
+
+## Process / Components
+
+```mermaid
+flowchart LR
+
+    subgraph Openshift
+        job["Scheduled Job</br>Runs daily, generates fire perimeters for active fires > 90ha"]
+        postgis[(PostGIS)]
+        pg_featurserv["pg_featurserv</br>A lightweight RESTful geospatial feature server for PostGIS."]
+        rasterserv["Raster Server</br>Serve up GeoTIFF files"]
+    end
+    WFS["https://openmaps.gov.bc.ca"]
+    GEE["Google Earth Engine(GEE)"]
+    s3[S3 Compliant, OCIO Object Storage Service]
+    user("User with GIS software")
+
+    job--"Query active fires > 90ha"-->WFS
+    job--"Generate fire perimeter GeoTIFF"-->GEE
+    job--"Store polygonized fire perimeter"-->postgis
+    job--"Store fire GeoTIFF"-->s3
+    pg_featurserv--"Serve features for GIS"-->postgis
+    rasterserv--"Serve fire GeoTIFF"-->s3
+    user--"OCG API"-->pg_featurserv
+    user-->rasterserv
+
+```
 
 ## General
 
 - Create `.env` file (you can copy `.env.example` and set appropriate values)
 - Assumes use of python poetry
+- Google Earth Engine does not work on versions newer than 3.8.\*
 
 ## Ubuntu
 
@@ -42,7 +57,6 @@ pip install pygdal==3.0.4.10
 ## Using macports on m1
 
 I had trouble using pyenv to install the version I need. So installing python with macports, and telling poetry to use the version I want.
-
 
 ```bash
 sudo port selfupdate
@@ -55,6 +69,7 @@ sudo port install proj9
 Python 3.8 is installed to: /opt/local/Library/Frameworks/Python.framework/Versions/3.8
 
 Find out where proj is installed, and set PROJ_DIR for your environment
+
 ```bash
 port contents proj9
 ```
@@ -72,6 +87,7 @@ NOTE: order is very important here, you need to have installed numpy before gdal
 ## Openshift
 
 ### Build image
+
 #### Shortcut!
 
 Taking some shortcuts! Skipping build in openshift, and pushing up from local
@@ -88,4 +104,3 @@ docker push image-registry.apps.silver.devops.gov.bc.ca/e1e498-tools/wps-fire-pe
 ```bash
 oc -n e1e498-dev process -f openshift/templates/perimeter_cronjob.yaml | oc -n e1e498-dev apply -f -
 ```
-

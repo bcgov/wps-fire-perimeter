@@ -28,6 +28,7 @@ def create_table_schema(meta_data: MetaData, table_name: str, srid: int) -> Tabl
                  Column('longitude', Float(), nullable=False,
                         comment='Longitude of the fire'),
                  Column('date_of_interest', DATE(), nullable=False),
+                 Column('rgb_raster', String(), nullable=False),
                  Column('create_date', TIMESTAMP(
                      timezone=True), nullable=False),
                  Column('update_date', TIMESTAMP(
@@ -53,7 +54,8 @@ def persist_polygon(filename: str,
                     date_of_interest: date,
                     coordinate: Point,
                     date_range: int,
-                    cloud_cover: float):
+                    cloud_cover: float,
+                    object_store_filename: str):
     """
     filename: geojson file
     identifier: fire identifier
@@ -64,6 +66,9 @@ def persist_polygon(filename: str,
     if multi_polygon is None:
         print('failed to generate multipolygon')
         return
+
+    rasterserv_base = config('rasterserv_base')
+    object_store_url = f'{rasterserv_base}/{object_store_filename}'
 
     user = config('user')
     password = config('password')
@@ -103,6 +108,7 @@ def persist_polygon(filename: str,
                         date_range=date_range,
                         fire_number=identifier,
                         cloud_cover=cloud_cover,
+                        rgb_raster=object_store_url,
                         update_date=now))
         else:
             values = {
@@ -112,6 +118,7 @@ def persist_polygon(filename: str,
                 'date_range': date_range,
                 'fire_number': identifier,
                 'cloud_cover': cloud_cover,
+                'rgb_raster': object_store_url,
                 'date_of_interest': date_of_interest,
                 'create_date': now,
                 'update_date': now,

@@ -35,11 +35,11 @@ parameters:
   - name: JOB_NAME
     value: fire-perimeter
   - name: SCHEDULE
-    value: "31 12 * * *"
+    value: "30 12 * * *"
     required: true
   - name: POSTGRES_WRITE_HOST
     required: true
-    value: patroni-wps-tileserv-replica
+    value: patroni-wps-tileserv-leader
   - name: POSTGRES_USER
     required: true
     value: featureserv
@@ -69,12 +69,12 @@ objects:
               containers:
                 - name: ${JOB_NAME}
                   resources:
-                    limits:
-                      cpu: "0"
-                      memory: "0"
                     requests:
-                      cpu: "0"
-                      memory: "0"
+                      cpu: 25m
+                      memory: 128Mi
+                    limits:
+                      cpu: 50m
+                      memory: 256Mi
                   image: ${IMAGE_REGISTRY}/${PROJ_TOOLS}/${IMAGE_NAME}:${IMAGE_TAG}
                   imagePullPolicy: "Always"
                   env:
@@ -118,6 +118,8 @@ objects:
                       value: "90"
                     - name: bounding_box_multiple
                       value: "2.0"
+                    - name: rasterserv_base
+                      value: https://wps-dev-rasterserv.apps.silver.devops.gov.bc.ca
                     - name: OBJECT_STORE_SERVER
                       valueFrom:
                         secretKeyRef:

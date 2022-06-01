@@ -1,4 +1,3 @@
-from ast import copy_location
 import os
 import shutil
 import tempfile
@@ -273,20 +272,21 @@ async def generate_data(date_of_interest: date, point_of_interest: Point, identi
         calculate_area(geojson_filename)
 
         try:
-            persist_polygon(geojson_filename, identifier,
-                            date_of_interest, point_of_interest,
-                            date_range, cloud_cover)
-        except Exception as e:
-            print(f'Could not persist polygon: {e}')
-
-        try:
-            target_path = f'fire_perimeter/{identifier}/{identifier}_{date_of_interest.isoformat()}_rgb.tif'
+            object_store_filename = f'{identifier}/{identifier}_{date_of_interest.isoformat()}_rgb.tif'
+            object_store_path = f'fire_perimeter/{object_store_filename}'
             async with get_client() as (client, bucket):
                 with open(rgb_geotiff_filename, 'rb') as f:
-                    print(f'Uploading to S3... {target_path}')
-                    await client.put_object(Bucket=bucket, Key=target_path, Body=f)
+                    print(f'Uploading to S3... {object_store_path}')
+                    await client.put_object(Bucket=bucket, Key=object_store_path, Body=f)
         except Exception as e:
             print(f'Could not store RGB image: {e}')
+
+        try:
+            persist_polygon(geojson_filename, identifier,
+                            date_of_interest, point_of_interest,
+                            date_range, cloud_cover, object_store_filename)
+        except Exception as e:
+            print(f'Could not persist polygon: {e}')
 
         if config('save_local', 'false') == 'true':
             if not os.path.exists('output'):
