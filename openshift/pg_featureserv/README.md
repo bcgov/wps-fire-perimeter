@@ -53,5 +53,5 @@ create extension postgis;
 
 ```bash
 # deploy pg_tileserv
-oc -n e1e498-dev process -f featureserv.yaml | oc -n e1e498-dev apply -f -
+oc -n e1e498-dev process -f openshift/pg_featureserv/featureserv.yaml | oc -n e1e498-dev apply -f -
 ```

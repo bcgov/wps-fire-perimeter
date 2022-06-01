@@ -6,5 +6,5 @@ docker push image-registry.apps.silver.devops.gov.bc.ca/e1e498-tools/wps-server-
 ```
 
 ```bash
-oc -n e1e498-dev process -f rasterserv.yaml | oc -n e1e498-dev apply -f -
+oc -n e1e498-dev process -f openshift/rasterserv/rasterserv.yaml | oc -n e1e498-dev apply -f -
 ```

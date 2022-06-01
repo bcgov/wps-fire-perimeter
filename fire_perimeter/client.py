@@ -273,20 +273,21 @@ async def generate_data(date_of_interest: date, point_of_interest: Point, identi
         calculate_area(geojson_filename)
 
         try:
-            persist_polygon(geojson_filename, identifier,
-                            date_of_interest, point_of_interest,
-                            date_range, cloud_cover)
-        except Exception as e:
-            print(f'Could not persist polygon: {e}')
-
-        try:
-            target_path = f'fire_perimeter/{identifier}/{identifier}_{date_of_interest.isoformat()}_rgb.tif'
+            object_store_filename = f'{identifier}/{identifier}_{date_of_interest.isoformat()}_rgb.tif'
+            object_store_path = f'fire_perimeter/{object_store_filename}'
             async with get_client() as (client, bucket):
                 with open(rgb_geotiff_filename, 'rb') as f:
-                    print(f'Uploading to S3... {target_path}')
-                    await client.put_object(Bucket=bucket, Key=target_path, Body=f)
+                    print(f'Uploading to S3... {object_store_path}')
+                    await client.put_object(Bucket=bucket, Key=object_store_path, Body=f)
         except Exception as e:
             print(f'Could not store RGB image: {e}')
+
+        try:
+            persist_polygon(geojson_filename, identifier,
+                            date_of_interest, point_of_interest,
+                            date_range, cloud_cover, object_store_filename)
+        except Exception as e:
+            print(f'Could not persist polygon: {e}')
 
         if config('save_local', 'false') == 'true':
             if not os.path.exists('output'):
@@ -344,26 +345,26 @@ def get_active_fires():
 
 
 async def main():
-    for feature in get_active_fires():
-        properties = feature.get('properties', {})
-        fire_status = properties.get('FIRE_STATUS')
-        current_size = float(properties.get('CURRENT_SIZE'))
-        ignition_date = properties.get('IGNITION_DATE')
-        fire_number = properties.get('FIRE_NUMBER')
+    # for feature in get_active_fires():
+    #     properties = feature.get('properties', {})
+    #     fire_status = properties.get('FIRE_STATUS')
+    #     current_size = float(properties.get('CURRENT_SIZE'))
+    #     ignition_date = properties.get('IGNITION_DATE')
+    #     fire_number = properties.get('FIRE_NUMBER')
 
-        print(
-            f'{fire_number} {fire_status} current size: {current_size}, ignition date: {ignition_date}')
+    #     print(
+    #         f'{fire_number} {fire_status} current size: {current_size}, ignition date: {ignition_date}')
 
-        point = shape(feature['geometry'])
+    #     point = shape(feature['geometry'])
 
-        yesterday = date.today() - timedelta(days=1)
+    #     yesterday = date.today() - timedelta(days=1)
 
-        await generate_data(yesterday, point, fire_number, current_size)
+    #     await generate_data(yesterday, point, fire_number, current_size)
 
     # for a particular date:
-    # date_of_interest = date(2021, 8, 23)
-    # point_of_interest = Point(-121.6, 51.5)
-    # await generate_data(date_of_interest, point_of_interest, 'sybrand', 320.0)
+    date_of_interest = date(2021, 8, 23)
+    point_of_interest = Point(-121.6, 51.5)
+    await generate_data(date_of_interest, point_of_interest, 'sybrand', 320.0)
 
     # for a bunch of dates:
     # date_of_interest = date(2021, 8, 9)
