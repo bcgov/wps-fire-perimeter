@@ -35,11 +35,11 @@ parameters:
   - name: JOB_NAME
     value: fire-perimeter
   - name: SCHEDULE
-    value: "57 * * * *"
+    value: "09 * * * *"
     required: true
   - name: POSTGRES_WRITE_HOST
     required: true
-    value: patroni-wps-tileserv-replica
+    value: patroni-wps-tileserv-leader
   - name: POSTGRES_USER
     required: true
     value: featureserv

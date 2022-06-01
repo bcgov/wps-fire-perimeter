@@ -345,26 +345,26 @@ def get_active_fires():
 
 
 async def main():
-    # for feature in get_active_fires():
-    #     properties = feature.get('properties', {})
-    #     fire_status = properties.get('FIRE_STATUS')
-    #     current_size = float(properties.get('CURRENT_SIZE'))
-    #     ignition_date = properties.get('IGNITION_DATE')
-    #     fire_number = properties.get('FIRE_NUMBER')
+    for feature in get_active_fires():
+        properties = feature.get('properties', {})
+        fire_status = properties.get('FIRE_STATUS')
+        current_size = float(properties.get('CURRENT_SIZE'))
+        ignition_date = properties.get('IGNITION_DATE')
+        fire_number = properties.get('FIRE_NUMBER')
 
-    #     print(
-    #         f'{fire_number} {fire_status} current size: {current_size}, ignition date: {ignition_date}')
+        print(
+            f'{fire_number} {fire_status} current size: {current_size}, ignition date: {ignition_date}')
 
-    #     point = shape(feature['geometry'])
+        point = shape(feature['geometry'])
 
-    #     yesterday = date.today() - timedelta(days=1)
+        yesterday = date.today() - timedelta(days=1)
 
-    #     await generate_data(yesterday, point, fire_number, current_size)
+        await generate_data(yesterday, point, fire_number, current_size)
 
     # for a particular date:
-    date_of_interest = date(2021, 8, 23)
-    point_of_interest = Point(-121.6, 51.5)
-    await generate_data(date_of_interest, point_of_interest, 'sybrand', 320.0)
+    # date_of_interest = date(2021, 8, 23)
+    # point_of_interest = Point(-121.6, 51.5)
+    # await generate_data(date_of_interest, point_of_interest, 'sybrand', 320.0)
 
     # for a bunch of dates:
     # date_of_interest = date(2021, 8, 9)

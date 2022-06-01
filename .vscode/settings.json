@@ -1,4 +1,7 @@
 {
     "python.envFile": "${workspaceFolder}/.env",
-    "editor.formatOnSave": true
+    "editor.formatOnSave": true,
+    "files.exclude": {
+        "**/__pycache__**": true
+    }
 }
