@@ -1,77 +1,78 @@
 apiVersion: template.openshift.io/v1
 kind: Template
 metadata:
-  name: featureserv
+  name: rasterserv
 parameters:
-  - name: PG_FEATURESERV_IMAGE_TAG
+  - name: IMAGE_TAG
     value: "latest"
   - name: IMAGE_REGISTRY
     value: image-registry.apps.silver.devops.gov.bc.ca
   - name: IMAGE_NAMESPACE
     value: e1e498-tools
-  - name: PASSWORD_KEY_NAME
+  - name: SECRET_KEY_NAME
     required: true
     value: wps-global
-  - name: PASSWORD_KEY
-    required: true
-    value: featureserv-db-password
-  - name: POSTGRES_USER
-    required: true
-    value: featureserv
-  - name: POSTGRES_WRITE_HOST
-    required: true
-    value: patroni-wps-tileserv-replica
-  - name: POSTGRES_DATABASE
-    required: true
-    value: featureserv
   - name: HOST
-    value: wps-dev-featureserv.apps.silver.devops.gov.bc.ca
+    value: wps-dev-rasterserv.apps.silver.devops.gov.bc.ca
 
 objects:
   - apiVersion: v1
     kind: DeploymentConfig
     metadata:
       labels:
-        app: featureserv
-      name: featureserv
+        app: rasterserv
+      name: rasterserv
     spec:
       replicas: 2
       selector:
-        app: featureserv
+        app: rasterserv
       strategy:
         type: Rolling
       template:
         metadata:
           labels:
-            app: featureserv
-            name: featureserv
+            app: rasterserv
+            name: rasterserv
         spec:
           containers:
-            - name: pgfeatureserv
-              image: ${IMAGE_REGISTRY}/${IMAGE_NAMESPACE}/pg_featureserv:${PG_FEATURESERV_IMAGE_TAG}
+            - name: rasterserv
+              image: ${IMAGE_REGISTRY}/${IMAGE_NAMESPACE}/wps-server-raster:${IMAGE_TAG}
               ports:
-                - containerPort: 9000
+                - containerPort: 8000
                   protocol: TCP
               env:
-                - name: POSTGRES_PASSWORD
+                - name: OBJECT_STORE_SERVER
                   valueFrom:
                     secretKeyRef:
-                      name: ${PASSWORD_KEY_NAME}
-                      key: ${PASSWORD_KEY}
-                - name: DATABASE_URL
-                  value: postgresql://${POSTGRES_USER}:$(POSTGRES_PASSWORD)@${POSTGRES_WRITE_HOST}/${POSTGRES_DATABASE}
+                      name: ${SECRET_KEY_NAME}
+                      key: object-store-server
+                - name: OBJECT_STORE_USER_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${SECRET_KEY_NAME}
+                      key: object-store-user-id
+                - name: OBJECT_STORE_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${SECRET_KEY_NAME}
+                      key: object-store-secret
+                - name: OBJECT_STORE_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${SECRET_KEY_NAME}
+                      key: object-store-bucket
               livenessProbe:
                 failureThreshold: 3
                 initialDelaySeconds: 5
                 periodSeconds: 30
                 successThreshold: 1
                 tcpSocket:
-                  port: 9000
+                  port: 8000
                 timeoutSeconds: 5
               readinessProbe:
                 httpGet:
                   path: /ready
-                  port: 9000
+                  port: 8000
                 failureThreshold: 3
                 initialDelaySeconds: 10
                 periodSeconds: 30
@@ -87,32 +88,32 @@ objects:
   - apiVersion: v1
     kind: Service
     metadata:
-      name: featureserv
+      name: rasterserv
       labels:
-        app: featureserv
-        name: featureserv
+        app: rasterserv
+        name: rasterserv
     spec:
       ports:
-        - name: 9000-tcp
+        - name: 8000-tcp
           protocol: TCP
           port: 80
-          targetPort: 9000
+          targetPort: 8000
       selector:
-        name: featureserv
+        name: rasterserv
   - apiVersion: route.openshift.io/v1
     kind: Route
     metadata:
-      name: featureserv
+      name: rasterserv
       labels:
-        app: featureserv
-        name: featureserv
+        app: rasterserv
+        name: rasterserv
     spec:
       host: ${HOST}
       port:
-        targetPort: 9000-tcp
+        targetPort: 8000-tcp
       to:
         kind: Service
-        name: featureserv
+        name: rasterserv
       tls:
         termination: edge
         insecureEdgeTerminationPolicy: Redirect
