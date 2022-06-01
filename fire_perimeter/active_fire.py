@@ -1,6 +1,6 @@
 """
 Based on code by https://github.com/ashlinrichardson available at:
-https://github.com/bcgov/bcws-psu-research/blob/master/py/gee/active_fire.js
+https://github.com/bcgov/wps-research/blob/master/py/gee/active_fire.js
 """
 import ee
 
