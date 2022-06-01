@@ -342,6 +342,7 @@ def get_active_fires():
         'srsName': 'EPSG:4326'
     }
 
+    print(f'fetching active fires from {url}')
     response = requests.get(url, params=params, timeout=60)
     current_size_threshold = int(config('current_size_threshold', 90))
 
