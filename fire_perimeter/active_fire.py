@@ -1,6 +1,6 @@
 """
 Based on code by https://github.com/ashlinrichardson available at:
-https://github.com/bcgov/bcws-psu-research/blob/master/py/gee/active_fire.js
+https://github.com/bcgov/wps-research/blob/master/py/gee/active_fire.js
 """
 import ee
 
@@ -38,9 +38,17 @@ def apply_classification_rule(data):
     # apply classification rule
     rule = 'x = R > G && R > B && (LC != 80) && (LC != 50) && (LC != 70) && (DEM < 1500)'
     r = data.expression(rule, {'R': data.select('B12'),
+<<<<<<< HEAD
                                'G': data.select('B11'),
                                'B': data.select('B9'),
                                'LC': land_cover.select('Map'),
                                'DEM': nasa_dem})
 
+=======
+                            'G': data.select('B11'),
+                            'B': data.select('B9'),
+                            'LC': land_cover.select('Map'),
+                            'DEM': nasa_dem})
+    
+>>>>>>> origin/main
     return r
