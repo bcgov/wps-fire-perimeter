@@ -117,7 +117,7 @@ objects:
                     - name: current_size_threshold
                       value: "90"
                     - name: bounding_box_multiple
-                      value: "2.0"
+                      value: "3.0"
                     - name: rasterserv_base
                       value: https://wps-dev-rasterserv.apps.silver.devops.gov.bc.ca
                     - name: OBJECT_STORE_SERVER
