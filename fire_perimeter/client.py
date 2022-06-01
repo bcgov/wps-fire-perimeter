@@ -211,8 +211,11 @@ def generate_raster(date_of_interest: date,
     width = int(width / 20)
     height = int(height / 20)
 
-    # TODO: try to plug in a single band, then reduce the bytes per pixel to get a higher resolution classification image.
+    # NOTE: sadly, even though we're only getting a single 8 bit band, I can't convince
+    # google earth that's the case, so we're not getting the classification raster
+    # at the resolution we'd like.
     write_geotiff(fires, bbox, classification_geotiff_filename,
+                  {'bands': ['x']},
                   pixels=(width, height), bytes_per_pixel=12)
     write_geotiff(data, bbox, rgb_geotiff_filename,
                   {'bands': ['B12', 'B11', 'B9']}, (width, height), bytes_per_pixel=12)
