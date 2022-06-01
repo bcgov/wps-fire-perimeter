@@ -21,12 +21,11 @@ from fire_perimeter.persistence import persist_polygon
 from fire_perimeter.store import get_client
 
 
-def write_geotiff(data, bbox, filename, params={}, pixels=(1024, 1024)):
-    # https://developers.google.com/earth-engine/apidocs/ee-image-getthumburl
+def write_geotiff(data, bbox, filename, params={}, pixels=(1024, 1024), bytes_per_pixel=12):
+    # https://developers.google.com/earth-engine/apidocs/ee-image-getdownloadurl
     # the largest dimension we're allowed to use is 10000 - that's all good and well that you want 10000x10000, pixels
     # but according to docmentation the maximum size is 32 MB
     # Assuming out TIFF has 3 bands, and 4 bytes per band, that's 12 bytes per pixel
-    bytes_per_pixel = 12
     max_bytes = 32 * 1024 * 1024
     max_pixels = max_bytes / bytes_per_pixel
     requested_pixels = pixels[0] * pixels[1]
@@ -212,10 +211,11 @@ def generate_raster(date_of_interest: date,
     width = int(width / 20)
     height = int(height / 20)
 
+    # TODO: try to plug in a single band, then reduce the bytes per pixel to get a higher resolution classification image.
     write_geotiff(fires, bbox, classification_geotiff_filename,
-                  pixels=(width, height))
+                  pixels=(width, height), bytes_per_pixel=12)
     write_geotiff(data, bbox, rgb_geotiff_filename,
-                  {'bands': ['B12', 'B11', 'B9']}, (width, height))
+                  {'bands': ['B12', 'B11', 'B9']}, (width, height), bytes_per_pixel=12)
 
 
 def calculate_area(filename):
@@ -368,26 +368,26 @@ def get_active_fires():
 
 
 async def main():
-    for feature in get_active_fires():
-        properties = feature.get('properties', {})
-        fire_status = properties.get('FIRE_STATUS')
-        current_size = float(properties.get('CURRENT_SIZE'))
-        ignition_date = properties.get('IGNITION_DATE')
-        fire_number = properties.get('FIRE_NUMBER')
+    # for feature in get_active_fires():
+    #     properties = feature.get('properties', {})
+    #     fire_status = properties.get('FIRE_STATUS')
+    #     current_size = float(properties.get('CURRENT_SIZE'))
+    #     ignition_date = properties.get('IGNITION_DATE')
+    #     fire_number = properties.get('FIRE_NUMBER')
 
-        print(
-            f'{fire_number} {fire_status} current size: {current_size}, ignition date: {ignition_date}')
+    #     print(
+    #         f'{fire_number} {fire_status} current size: {current_size}, ignition date: {ignition_date}')
 
-        point = shape(feature['geometry'])
+    #     point = shape(feature['geometry'])
 
-        yesterday = date.today() - timedelta(days=1)
+    #     yesterday = date.today() - timedelta(days=1)
 
-        await generate_data(yesterday, point, fire_number, current_size)
+    #     await generate_data(yesterday, point, fire_number, current_size)
 
     # for a particular date:
-    # date_of_interest = date(2021, 8, 23)
-    # point_of_interest = Point(-121.6, 51.5)
-    # await generate_data(date_of_interest, point_of_interest, 'sybrand', 320.0)
+    date_of_interest = date(2021, 8, 23)
+    point_of_interest = Point(-121.6, 51.5)
+    await generate_data(date_of_interest, point_of_interest, 'sybrand', 320.0)
 
     # for a bunch of dates:
     # date_of_interest = date(2021, 8, 9)
