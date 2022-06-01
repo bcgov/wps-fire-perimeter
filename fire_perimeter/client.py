@@ -1,4 +1,5 @@
 import os
+import math
 import shutil
 import tempfile
 import asyncio
@@ -20,9 +21,26 @@ from fire_perimeter.persistence import persist_polygon
 from fire_perimeter.store import get_client
 
 
-def write_geotiff(data, bbox, filename, params={}):
+def write_geotiff(data, bbox, filename, params={}, pixels=(1024, 1024)):
     # https://developers.google.com/earth-engine/apidocs/ee-image-getthumburl
-    base_params = {'min': 0, 'max': 1, 'dimensions': 1024,
+    # the largest dimension we're allowed to use is 10000 - that's all good and well that you want 10000x10000, pixels
+    # but according to docmentation the maximum size is 32 MB
+    # Assuming out TIFF has 3 bands, and 4 bytes per band, that's 12 bytes per pixel
+    bytes_per_pixel = 12
+    max_bytes = 32 * 1024 * 1024
+    max_pixels = max_bytes / bytes_per_pixel
+    requested_pixels = pixels[0] * pixels[1]
+    ratio = math.sqrt(max_pixels) / math.sqrt(requested_pixels)
+
+    if ratio < 1.0:
+        # we're exceeding the max size, scale it down.
+        dimensions = (int(pixels[0]*ratio),
+                      int(pixels[1]*ratio))
+    else:
+        # we're not exceeding the max size, all good.
+        dimensions = pixels
+
+    base_params = {'min': 0, 'max': 1, 'dimensions': dimensions,
                    'region': bbox, 'format': 'GEO_TIFF'}
 
     url = data.getDownloadUrl(dict(base_params, **params))
@@ -113,7 +131,7 @@ def calculate_bounding_box(point_of_intereset: Point, current_size: float):
     """
     # current size is in hectares, and let's assume it's grown some:
     adjusted_hectares = current_size * \
-        float(config('bounding_box_multiple', 2))
+        float(config('bounding_box_multiple', 3))
     # width in meters
     width_in_m = adjusted_hectares * 100
     # but we're measuring from the starting point, so we only need half of that
@@ -174,8 +192,8 @@ def generate_raster(date_of_interest: date,
 
     # ee.Geometry.BBox(west, south, east, north)
     # Latitude is denoted by Y (northing) and Longitude by X (Easting)
-    # lon = point_of_interest.x
-    # lat = point_of_interest.y
+    lon = point_of_interest.x
+    lat = point_of_interest.y
     # # for a super big fire - longitude +/- 0.3, latitude +/- 0.2
     # # TODO: figure this out using hectare estimate. (current_size)
     # west = lon-0.3
@@ -186,12 +204,18 @@ def generate_raster(date_of_interest: date,
         point_of_interest, current_size)
 
     bbox = ee.Geometry.BBox(west, south, east, north)
-    # print(bbox)
 
-    write_geotiff(fires, bbox, classification_geotiff_filename)
-    # skipping geotiff, since we're just throwing it away in the end!
+    # attempt to figure out how many pixels we need to ask for to get 20m resolution:
+    g = Geod(ellps='WGS84')
+    _, _, width = g.inv(west, lat, east, lat)
+    _, _, height = g.inv(lon, south, lon, north)
+    width = int(width / 20)
+    height = int(height / 20)
+
+    write_geotiff(fires, bbox, classification_geotiff_filename,
+                  pixels=(width, height))
     write_geotiff(data, bbox, rgb_geotiff_filename,
-                  {'bands': ['B12', 'B11', 'B9']})
+                  {'bands': ['B12', 'B11', 'B9']}, (width, height))
 
 
 def calculate_area(filename):

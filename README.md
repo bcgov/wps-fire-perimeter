@@ -21,15 +21,17 @@ https://github.com/bcgov/bcws-psu-research/blob/master/py/gee/active_fire.js
 flowchart LR
 
     subgraph Openshift
-        job["Scheduled Job</br>Runs daily, generates fire perimeters for active fires > 90ha"]
+        job["Scheduled Job</br>Runs daily, generates fire perimeters for active fires > 90ha.</br>Uses publicically available data."]
         postgis[(PostGIS)]
-        pg_featurserv["pg_featurserv</br>A lightweight RESTful geospatial feature server for PostGIS."]
-        rasterserv["Raster Server</br>Serve up GeoTIFF files"]
+        subgraph Servers
+            pg_featurserv["pg_featurserv</br>A lightweight RESTful geospatial feature server for PostGIS."]
+            rasterserv["Raster Server</br>Serve up GeoTIFF files."]
+        end
     end
     WFS["https://openmaps.gov.bc.ca"]
     GEE["Google Earth Engine(GEE)"]
     s3[S3 Compliant, OCIO Object Storage Service]
-    user("User with GIS software")
+    user("User with GIS software/Browser")
 
     job--"Query active fires > 90ha"-->WFS
     job--"Generate fire perimeter GeoTIFF"-->GEE
@@ -41,6 +43,18 @@ flowchart LR
     user-->rasterserv
 
 ```
+
+## Demo
+
+Proof of concept demo: [https://wps-dev-featureserv.apps.silver.devops.gov.bc.ca/](https://wps-dev-featureserv.apps.silver.devops.gov.bc.ca/)
+
+### pg-featureserv screenshot
+
+![Sample output](pg-featureserv.png)
+
+### GeoTIFF screenshot
+
+![Copy of GeoTIFF](sybrand_2021-08-23_rgb.png)
 
 ## General
 
