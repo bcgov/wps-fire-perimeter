@@ -4,6 +4,9 @@ notebook:
 run:
 	poetry run python fire_perimeter/client.py
 
+cli:
+	poetry run python -m fire_perimeter.cli
+
 build:
 	docker build --tag=wps-fire-perimeter:latest .
 
