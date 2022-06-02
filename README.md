@@ -64,10 +64,16 @@ Proof of concept demo: [https://wps-dev-featureserv.apps.silver.devops.gov.bc.ca
 - Assumes use of python poetry
 - Google Earth Engine does not work on versions newer than 3.8.\*
 
-## Ubuntu
+## Ubuntu (20.04) 
 
 ```bash
-pip install pygdal==3.0.4.10
+curl -sSL https://install.python-poetry.org | python3 -
+poetry run python -m pip install --upgrade pip
+poetry install
+poetry run python -m pip install pygdal==3.0.4.10
+
+make cli
+poetry run python -m fire_perimeter.cli --help
 ```
 
 ## Using macports on m1
