@@ -19,7 +19,8 @@ async def _fire_perimeter(
         current_size: float,
         geojson_filename: str):
 
-    ee.Authenticate(auth_mode="paste")
+    # gcloud auth might work?
+    ee.Authenticate(auth_mode="gcloud")
     ee.Initialize()
 
     # clean up existing files
