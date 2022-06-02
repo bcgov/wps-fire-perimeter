@@ -12,6 +12,8 @@ Issue: Current implementation dependant on cloud cover! Current algorithm doesn'
 
 Issue: Need a government google account to productionize this.
 
+<img src="fire_perimeter/example.gif" width="333">
+
 Credit: The code that identifies fire is basead on code by https://github.com/ashlinrichardson available at:
 https://github.com/bcgov/wps-research/blob/master/py/gee/active_fire.js
 
