@@ -391,9 +391,8 @@ async def main():
 
         point = shape(feature['geometry'])
 
-        yesterday = date.today() - timedelta(days=1)
-
-        await generate_data(yesterday, point, fire_number, current_size)
+        # run up to today
+        await generate_data(date.today(), point, fire_number, current_size)
 
     # for a particular date:
     # date_of_interest = date(2021, 8, 23)
