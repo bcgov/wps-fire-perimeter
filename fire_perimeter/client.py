@@ -157,6 +157,18 @@ def calculate_bounding_box(point_of_intereset: Point, current_size: float):
     return (west, south, east, north)
 
 
+def authenticate():
+    """
+    Authenticate with the google earth engine
+    """
+    # construct jwt token
+    token = jwt_token()
+
+    # from google.oauth2.credentials import Credentials - only works with python 3.8.* or earlier.
+    credentials = Credentials(token=token)
+    ee.Initialize(credentials)
+
+
 def generate_raster(date_of_interest: date,
                     point_of_interest: Point,
                     classification_geotiff_filename: str,
@@ -167,13 +179,6 @@ def generate_raster(date_of_interest: date,
     """
     Step back 14 days from the the of interest, and classify an area around the point of interest.
     """
-    # construct jwt token
-    token = jwt_token()
-
-    # from google.oauth2.credentials import Credentials - only works with python 3.8.* or earlier.
-    credentials = Credentials(token=token)
-    ee.Initialize(credentials)
-
     # https://developers.google.com/earth-engine/guides/python_install#syntax
 
     # very unlikely to have a good image for any given date, so we'll go back 14 days...
@@ -271,6 +276,8 @@ async def generate_data(date_of_interest: date, point_of_interest: Point, identi
     """
     Generate a geojson file for the fire classification, and a geotiff file for the RGB image.
     """
+
+    authenticate()
 
     with tempfile.TemporaryDirectory() as temporary_path:
         # We use a temporary file to generate raster files and polygons. When we're done, we're throwing away
@@ -384,9 +391,8 @@ async def main():
 
         point = shape(feature['geometry'])
 
-        yesterday = date.today() - timedelta(days=1)
-
-        await generate_data(yesterday, point, fire_number, current_size)
+        # run up to today
+        await generate_data(date.today(), point, fire_number, current_size)
 
     # for a particular date:
     # date_of_interest = date(2021, 8, 23)
