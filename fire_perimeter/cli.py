@@ -4,7 +4,7 @@ import ee
 import asyncio
 import fire
 from shapely.geometry import Point
-
+import fire_perimeter
 from fire_perimeter.client import generate_raster, polygonize
 
 
@@ -19,9 +19,12 @@ async def _fire_perimeter(
         current_size: float,
         geojson_filename: str):
 
-    # gcloud auth might work?
-    ee.Authenticate(auth_mode="gcloud")
-    ee.Initialize()
+    # gcloud authentication
+    try:
+        ee.Initialize()  # don't re-authenticate if already signed in
+    except Exception:
+        ee.Authenticate(auth_mode="gcloud")
+        ee.Initialize()
 
     # clean up existing files
     for file in [classification_filename, rgb_filename, geojson_filename]:
