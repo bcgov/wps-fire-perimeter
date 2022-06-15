@@ -4,6 +4,7 @@ import ee
 import asyncio
 import fire
 from shapely.geometry import Point
+
 from fire_perimeter.client import generate_raster, polygonize
 
 
