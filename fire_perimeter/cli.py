@@ -1,8 +1,9 @@
-from datetime import date
 import os
 import ee
-import asyncio
 import fire
+import asyncio
+import urllib.request
+from datetime import date
 from shapely.geometry import Point
 
 from fire_perimeter.client import generate_raster, polygonize
@@ -74,4 +75,8 @@ def fire_perimeter(
 
 
 if __name__ == '__main__':
+    fn = 'prot_current_fire_points.zip'
+    dl_path = 'https://pub.data.gov.bc.ca/datasets/2790e3f7-6395-4230-8545-04efb5a18800/' + fn
+    urllib.request.urlretrieve(dl_path, fn)
+
     fire.Fire(fire_perimeter)
