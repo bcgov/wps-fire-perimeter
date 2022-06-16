@@ -131,5 +131,6 @@ if __name__ == '__main__':
                        longitude=biggest_lon, 
                        date_of_interest=datetime.datetime.now().strftime("%Y-%m-%d"),
                        current_size=biggest_size,
-                       date_range=30.)
+                       date_range=14.,
+                       cloud_cover=50.)
         a = os.system('gdal_translate -of ENVI -ot Float32 rgb.tif  rgb.bin')
