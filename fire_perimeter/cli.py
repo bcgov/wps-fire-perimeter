@@ -79,15 +79,13 @@ def _fire_perimeter_(
 
     point_of_interest = Point(longitude, latitude)
 
-    generate_raster(
-        date_of_interest=date_of_interest,
-        point_of_interest=point_of_interest,
-        classification_geotiff_filename=classification_filename,
-        rgb_geotiff_filename=rgb_filename,
-        current_size=current_size,
-        date_range=date_range,
-        cloud_cover=cloud_cover)
-
+    generate_raster(date_of_interest=date_of_interest,
+                    point_of_interest=point_of_interest,
+                    classification_geotiff_filename=classification_filename,
+                    rgb_geotiff_filename=rgb_filename,
+                    current_size=current_size,
+                    date_range=date_range,
+                    cloud_cover=cloud_cover)
     polygonize(classification_filename, geojson_filename)
 
 
@@ -169,7 +167,7 @@ if __name__ == '__main__':
                              classification_filename = fk['FIRE_NUMBE'] + '_classification.tif',
                              rgb_filename = rgb_f,
                              geojson_filename = fk['FIRE_NUMBE'] + '.json')
-            if os.path.exists(os.popen('which gdal_translate')):
+            if os.path.exists(os.popen('which gdal_translate').read()):
                 a = os.system('gdal_translate -of ENVI -ot Float32 ' + rgb_f + ' ' + rgb_f[:-3] + 'bin')
                 hdr_cleanup = '~/GitHub/wps-research/py/envi_header_cleanup.py'
                 if os.path.exists(hdr_cleanup):
