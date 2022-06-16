@@ -1,5 +1,6 @@
 import os
 import ee
+import sys
 import fire
 import json
 import shutil
@@ -121,6 +122,8 @@ if __name__ == '__main__':
     print("size:", biggest_size)
     print("lat:", biggest_lat)
     print("lon:", biggest_lon)
-    print("len(sys.argv)", len(sys.argv))
 
-    fire.Fire(fire_perimeter)
+    if len(sys.argv) < 2:
+        fire.Fire(fire_perimeter)
+    else:
+        # call with different parameters
