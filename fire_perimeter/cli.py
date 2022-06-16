@@ -127,3 +127,7 @@ if __name__ == '__main__':
         fire.Fire(fire_perimeter)
     else:
         # call with different parameters
+        fire_perimeter(latitude=biggest_lat,
+                       longitude=biggest_lon, 
+                       date_of_interest=datetime.datetime.now().strftime("%Y-%m-%d"),
+                       current_size=biggest_size)
