@@ -141,16 +141,14 @@ if __name__ == '__main__':
 
     features = records(layer)
     feature_names, feature_ids, records_use = [], [], []
-    for f in features: # print(f.keys())
+    for f in features:
         for key in f.keys():
             if key == 'properties':
                 fk = f[key]
                 fire_size = float(fk['CURRENT_SI'])
-                # select fires
                 if fk['FIRE_STATU'].lower() != 'out' and fire_size > 100.:  # fire_size > biggest_size
-                    records_use.append(fk)
+                    records_use.append(fk)  # selected fires
                     print(fk)
-
 
     if len(sys.argv) > 1:
         fire.Fire(fire_perimeter)
@@ -167,8 +165,6 @@ if __name__ == '__main__':
                              classification_filename = fk['FIRE_NUMBE'] + '_classification.tif',
                              rgb_filename = rgb_f,
                              geojson_filename = fk['FIRE_NUMBE'] + '.json')
-            if os.path.exists(os.popen('which gdal_translate').read()):
-                a = os.system('gdal_translate -of ENVI -ot Float32 ' + rgb_f + ' ' + rgb_f[:-3] + 'bin')
-                hdr_cleanup = '~/GitHub/wps-research/py/envi_header_cleanup.py'
-                if os.path.exists(hdr_cleanup):
-                    a = os.system('python3 ' + hdr_cleanup + ' ' + rgb_f[:-3] + 'hdr')
+            a = os.system('gdal_translate -of ENVI -ot Float32 ' + rgb_f + ' ' + rgb_f[:-3] + 'bin')
+            hdr_cleanup = '~/GitHub/wps-research/py/envi_header_cleanup.py'
+            a = os.system('python3 ' + hdr_cleanup + ' ' + rgb_f[:-3] + 'hdr')
