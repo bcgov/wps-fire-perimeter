@@ -1,10 +1,18 @@
 import os
 import ee
 import fire
+import json
+import shutil
 import asyncio
+import zipfile
+import datetime
 import urllib.request
 from datetime import date
 from shapely.geometry import Point
+
+from osgeo import ogr
+from osgeo import gdal
+from osgeo import gdalconst
 
 from fire_perimeter.client import generate_raster, polygonize
 
@@ -75,8 +83,43 @@ def fire_perimeter(
 
 
 if __name__ == '__main__':
-    fn = 'prot_current_fire_points.zip'
+    fn = 'prot_current_fire_points.zip'  # download fire data
     dl_path = 'https://pub.data.gov.bc.ca/datasets/2790e3f7-6395-4230-8545-04efb5a18800/' + fn
     urllib.request.urlretrieve(dl_path, fn)
+    
+    t = datetime.datetime.now().strftime("%Y%m%d%H%M%S")  # timestamped backup
+    shutil.copyfile(fn, 'prot_current_fire_points_' + t + '.zip')
+    zipfile.ZipFile(fn).extractall()   
+
+    # Open Shapefile
+    Shapefile = ogr.Open('prot_current_fire_points.shp')
+    print(Shapefile)
+    layer = Shapefile.GetLayer()
+    layerDefinition = layer.GetLayerDefn()
+    feature_count = layer.GetFeatureCount()
+    spatialRef = layer.GetSpatialRef()
+
+    def records(layer):
+        for i in range(layer.GetFeatureCount()):
+            feature = layer.GetFeature(i)
+            yield json.loads(feature.ExportToJson())
+
+    features = records(layer)
+    feature_names, feature_ids = [], []
+    biggest_size, biggest_ID, biggest_lat, biggest_lon = 0, None, None, None
+    for f in features: # print(f.keys())
+        for key in f.keys():
+            if key == 'properties':
+                fk = f[key]
+                fire_size = float(fk['CURRENT_SI'])
+                if(fire_size > biggest_size):
+                    biggest_size = fire_size
+                    biggest_ID = fk # ['FIRE_NUMBE']
+                    biggest_lat = fk['LATITUDE']
+                    biggest_lon = fk['LONGITUDE']
+    print("biggest fire:", biggest_ID['FIRE_NUMBE'], biggest_ID)
+    print("size:", biggest_size)
+    print("lat:", biggest_lat)
+    print("lon:", biggest_lon)
 
     fire.Fire(fire_perimeter)
