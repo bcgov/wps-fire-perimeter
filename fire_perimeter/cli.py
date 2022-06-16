@@ -130,4 +130,6 @@ if __name__ == '__main__':
         fire_perimeter(latitude=biggest_lat,
                        longitude=biggest_lon, 
                        date_of_interest=datetime.datetime.now().strftime("%Y-%m-%d"),
-                       current_size=biggest_size)
+                       current_size=biggest_size,
+                       date_range=30.)
+        a = os.system('gdal_translate -of ENVI -ot Float32 rgb.tif  rgb.bin')
