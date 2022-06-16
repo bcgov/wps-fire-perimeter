@@ -123,7 +123,7 @@ if __name__ == '__main__':
     print("lat:", biggest_lat)
     print("lon:", biggest_lon)
 
-    if len(sys.argv) < 2:
+    if len(sys.argv) > 1:
         fire.Fire(fire_perimeter)
     else:
         # call with different parameters
