@@ -164,9 +164,9 @@ if __name__ == '__main__':
                              longitude=float(fk['LONGITUDE']),
                              date_of_interest=datetime.date.today(), # .isoformat(), #.strftime("%Y-%m-%d"),
                              current_size=float(fk['CURRENT_SI']),
-                             date_range=14.,
-                             cloud_cover=50.,
+                             date_range=11.,
+                             cloud_cover=30.,
                              classification_filename = fk['FIRE_NUMBE'] + '_classification.tif',
                              rgb_filename = rgb_f,
                              geojson_filename = fk['FIRE_NUMBE'] + '.json')
-            #a = os.system('gdal_translate -of ENVI -ot Float32 ' + rgb_f + ' ' + rgb_f[:-3] + 'bin')
+            a = os.system('gdal_translate -of ENVI -ot Float32 ' + rgb_f + ' ' + rgb_f[:-3] + 'bin')
