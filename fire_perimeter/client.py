@@ -130,7 +130,7 @@ def calculate_bounding_box(point_of_intereset: Point, current_size: float):
     """
     # current size is in hectares, and let's assume it's grown some:
     adjusted_hectares = current_size * \
-        float(config('bounding_box_multiple', 3))
+        float(config('bounding_box_multiple', 2))
     # width in meters
     width_in_m = adjusted_hectares * 100
     # but we're measuring from the starting point, so we only need half of that
