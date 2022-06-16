@@ -121,5 +121,6 @@ if __name__ == '__main__':
     print("size:", biggest_size)
     print("lat:", biggest_lat)
     print("lon:", biggest_lon)
+    print("len(sys.argv)", len(sys.argv))
 
     fire.Fire(fire_perimeter)
