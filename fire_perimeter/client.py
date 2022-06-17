@@ -72,11 +72,9 @@ def create_in_memory_band(data: ndarray, cols, rows, projection, geotransform):
 
 def read_scanline(band, yoff):
     """ Read a band scanline (up to the y-offset), returning an array of values.
-
     A raster (image) may consist of multiple bands (e.g. for a colour image, one may have a band for
     red, green, blue, and alpha).
     A scanline, is a single row of a band.
-
     band, definition: https://gdal.org/user/raster_data_model.html#raster-band
     fetching a raster band: https://gdal.org/tutorials/raster_api_tut.html#fetching-a-raster-band
     """
@@ -130,25 +128,29 @@ def calculate_bounding_box(point_of_intereset: Point, current_size: float):
     """
     # current size is in hectares, and let's assume it's grown some:
     adjusted_hectares = current_size * \
-        float(config('bounding_box_multiple', 10 )) # 6))
+        float(config('bounding_box_multiple', 2))
     # width in meters
-    width_in_m = math.sqrt(adjusted_hectares * 10000) # adjusted_hectares * 100   # 10000 m ^2 per ha 
+    width_in_m = adjusted_hectares * 100
     # but we're measuring from the starting point, so we only need half of that
     distance = width_in_m / 2
 
     lon = point_of_intereset.x
     lat = point_of_intereset.y
-    g = Geod(ellps='WGS84')  # https://pyproj4.github.io/pyproj/stable/api/geod.html
+    g = Geod(ellps='WGS84')
 
-    n = g.fwd(lon, lat, 0, distance, radians=False) # north
-    s = g.fwd(lon, lat, 180, distance, radians=False)  # south
-    e = g.fwd(lon, lat, 90, distance, radians=False)  # east
-    w = g.fwd(lon, lat, 270, distance, radians=False)  # west 
+    # north
+    n = g.fwd(lon, lat, 0, distance)
+    # south
+    s = g.fwd(lon, lat, 180, distance)
+    # east
+    e = g.fwd(lon, lat, 90, distance)
+    # west
+    w = g.fwd(lon, lat, 270, distance)
 
-    west = w[0]  # lon
-    south = s[1]  # lat
-    east = e[0]  # lon
-    north = n[1]  # lat
+    west = w[0]
+    south = s[1]
+    east = e[0]
+    north = n[1]
 
     return (west, south, east, north)
 
