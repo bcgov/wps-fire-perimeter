@@ -4,7 +4,6 @@ import sys
 import fire
 import json
 import shutil
-import asyncio
 import zipfile
 import datetime
 import urllib.request
@@ -12,13 +11,11 @@ from datetime import date
 from shapely.geometry import Point
 
 from osgeo import ogr
-from osgeo import gdal
-from osgeo import gdalconst
 
 from fire_perimeter.client import generate_raster, polygonize
 
 
-async def _fire_perimeter(
+def _fire_perimeter(
         latitude: float,
         longitude: float,
         date_of_interest: date,
@@ -53,6 +50,7 @@ async def _fire_perimeter(
         cloud_cover=cloud_cover)
 
     polygonize(classification_filename, geojson_filename)
+
 
 def _fire_perimeter_(
         latitude: float,
@@ -103,28 +101,25 @@ def fire_perimeter(
     # TODO: ran out of time, but the "current_size" variable is a mess - since it's going to multiply it by 3 - would be better
     # to just define the bounding box here.
 
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(_fire_perimeter(
-        latitude,
-        longitude,
-        date.fromisoformat(date_of_interest),
-        date_range,
-        cloud_cover,
-        classification_filename,
-        rgb_filename,
-        current_size,
-        geojson_filename))
-    loop.close()
+    _fire_perimeter(latitude,
+                    longitude,
+                    date.fromisoformat(date_of_interest),
+                    date_range,
+                    cloud_cover,
+                    classification_filename,
+                    rgb_filename,
+                    current_size,
+                    geojson_filename)
 
 
 if __name__ == '__main__':
     fn = 'prot_current_fire_points.zip'  # download fire data
     dl_path = 'https://pub.data.gov.bc.ca/datasets/2790e3f7-6395-4230-8545-04efb5a18800/' + fn
     urllib.request.urlretrieve(dl_path, fn)
-    
-    t = datetime.datetime.now().strftime("%Y%m%d") #%H%M%S")  # timestamped backup
+
+    t = datetime.datetime.now().strftime("%Y%m%d")  # %H%M%S")  # timestamped backup
     shutil.copyfile(fn, 'prot_current_fire_points_' + t + '.zip')
-    zipfile.ZipFile(fn).extractall()   
+    zipfile.ZipFile(fn).extractall()
 
     # Open Shapefile
     Shapefile = ogr.Open('prot_current_fire_points.shp')
@@ -158,13 +153,16 @@ if __name__ == '__main__':
             rgb_f = fk['FIRE_NUMBE'] + '_rgb.tif'
             _fire_perimeter_(latitude=float(fk['LATITUDE']),
                              longitude=float(fk['LONGITUDE']),
-                             date_of_interest=datetime.date.today(), # .isoformat(), #.strftime("%Y-%m-%d"),
+                             # .isoformat(), #.strftime("%Y-%m-%d"),
+                             date_of_interest=datetime.date.today(),
                              current_size=float(fk['CURRENT_SI']),
                              date_range=11.,
                              cloud_cover=30.,
-                             classification_filename = fk['FIRE_NUMBE'] + '_classification.tif',
-                             rgb_filename = rgb_f,
-                             geojson_filename = fk['FIRE_NUMBE'] + '.json')
-            a = os.system('gdal_translate -of ENVI -ot Float32 ' + rgb_f + ' ' + rgb_f[:-3] + 'bin')
+                             classification_filename=fk['FIRE_NUMBE'] + \
+                             '_classification.tif',
+                             rgb_filename=rgb_f,
+                             geojson_filename=fk['FIRE_NUMBE'] + '.json')
+            a = os.system('gdal_translate -of ENVI -ot Float32 ' +
+                          rgb_f + ' ' + rgb_f[:-3] + 'bin')
             hdr_cleanup = '~/GitHub/wps-research/py/envi_header_cleanup.py'
             a = os.system('python3 ' + hdr_cleanup + ' ' + rgb_f[:-3] + 'hdr')

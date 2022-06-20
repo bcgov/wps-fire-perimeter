@@ -130,20 +130,22 @@ def calculate_bounding_box(point_of_intereset: Point, current_size: float):
     """
     # current size is in hectares, and let's assume it's grown some:
     adjusted_hectares = current_size * \
-        float(config('bounding_box_multiple', 10 )) # 6))
+        float(config('bounding_box_multiple', 10))  # 6))
     # width in meters
-    width_in_m = math.sqrt(adjusted_hectares * 10000) # adjusted_hectares * 100   # 10000 m ^2 per ha 
+    # adjusted_hectares * 100   # 10000 m ^2 per ha
+    width_in_m = math.sqrt(adjusted_hectares * 10000)
     # but we're measuring from the starting point, so we only need half of that
     distance = width_in_m / 2
 
     lon = point_of_intereset.x
     lat = point_of_intereset.y
-    g = Geod(ellps='WGS84')  # https://pyproj4.github.io/pyproj/stable/api/geod.html
+    # https://pyproj4.github.io/pyproj/stable/api/geod.html
+    g = Geod(ellps='WGS84')
 
-    n = g.fwd(lon, lat, 0, distance, radians=False) # north
+    n = g.fwd(lon, lat, 0, distance, radians=False)  # north
     s = g.fwd(lon, lat, 180, distance, radians=False)  # south
     e = g.fwd(lon, lat, 90, distance, radians=False)  # east
-    w = g.fwd(lon, lat, 270, distance, radians=False)  # west 
+    w = g.fwd(lon, lat, 270, distance, radians=False)  # west
 
     west = w[0]  # lon
     south = s[1]  # lat
@@ -268,7 +270,14 @@ def copy_file_local(source, target):
     shutil.copy(source, target)
 
 
-async def generate_data(date_of_interest: date, point_of_interest: Point, identifier: str, current_size: float):
+async def upload_to_s3(rgb_geotiff_filename, object_store_path):
+    async with get_client() as (client, bucket):
+        with open(rgb_geotiff_filename, 'rb') as f:
+            print(f'Uploading to S3... {object_store_path}')
+            await client.put_object(Bucket=bucket, Key=object_store_path, Body=f)
+
+
+def generate_data(date_of_interest: date, point_of_interest: Point, identifier: str, current_size: float):
     """
     Generate a geojson file for the fire classification, and a geotiff file for the RGB image.
     """
@@ -304,10 +313,11 @@ async def generate_data(date_of_interest: date, point_of_interest: Point, identi
         try:
             object_store_filename = f'{identifier}/{identifier}_{date_of_interest.isoformat()}_rgb.tif'
             object_store_path = f'fire_perimeter/{object_store_filename}'
-            async with get_client() as (client, bucket):
-                with open(rgb_geotiff_filename, 'rb') as f:
-                    print(f'Uploading to S3... {object_store_path}')
-                    await client.put_object(Bucket=bucket, Key=object_store_path, Body=f)
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(upload_to_s3(
+                rgb_geotiff_filename, object_store_path))
+            # loop.close() we can't close the event loop! we only have one for this thread.
+
         except Exception as e:
             print(f'Could not store RGB image: {e}')
 
@@ -374,7 +384,7 @@ def get_active_fires():
         print(response.text)
 
 
-async def main():
+def main():
     for feature in get_active_fires():
         properties = feature.get('properties', {})
         fire_status = properties.get('FIRE_STATUS')
@@ -388,7 +398,7 @@ async def main():
         point = shape(feature['geometry'])
 
         # run up to today
-        await generate_data(date.today(), point, fire_number, current_size)
+        generate_data(date.today(), point, fire_number, current_size)
 
     # for a particular date:
     # date_of_interest = date(2021, 8, 23)
@@ -408,6 +418,4 @@ async def main():
 
 
 if __name__ == '__main__':
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(main())
-    loop.close()
+    main()
